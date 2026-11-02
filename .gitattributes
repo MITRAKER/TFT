@@ -1,5 +1,8 @@
 # Normalise line endings so Windows and Linux checkouts produce identical diffs.
 * text=auto eol=lf
+# Windows batch files must keep CRLF endings to run reliably.
+*.cmd text eol=crlf
+*.bat text eol=crlf
 *.png binary
 *.jpg binary
 *.gif binary

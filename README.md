@@ -115,6 +115,7 @@ tests/              pytest suite, 95 % branch coverage required
 tools/jpl_check.py  NASA/JPL Power of Ten checker
 tools/release_version.py  tag-to-version check used by the Release workflow
 tools/configure_repository.py  applies the GitHub-side settings (security, Dependabot, rulesets)
+tools/bootstrap_windows.cmd  Windows one-click: installs Python and the GitHub CLI, signs in, runs the tool
 pyproject.toml      package metadata and every tool's configuration
 requirements-dev.txt pinned development and CI tools (Dependabot keeps them current)
 ```
