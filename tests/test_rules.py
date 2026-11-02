@@ -58,6 +58,8 @@ def test_from_mapping_rejects_unknown_keys_and_bad_tables() -> None:
         ({"xp_to_next_level": {1: 2}}, "xp_to_next_level"),
         ({"star_power_tenths": {1: 10}}, "star_power_tenths"),
         ({"stage_base_damage": {2: 2}}, "stage_base_damage"),
+        ({"trade_cost_bps": -1}, "must not be negative"),
+        ({"slice_bars": 1}, "slice_bars"),
     ],
 )
 def test_validation_rejects_unplayable_rules(overrides: dict[str, Any], message: str) -> None:

@@ -221,8 +221,9 @@ ships six augments with gold and power effects only.
 
 A 7×4 hex board as in the genre. Front row absorbs; back corners carry.
 In trading terms the front row is the hedge book and the back row is the
-alpha book. The mock has no grid; positioning enters with the first real
-combat resolver (milestone M2).
+alpha book. The engine has no grid yet; positioning enters with the web
+client (milestone M3), where a board position can map to allocation and
+hedging order in the market replay.
 
 ### 7.8 Combat: the market replay
 
@@ -245,8 +246,12 @@ Properties:
 - *Offline fixtures.* Tests run on committed historical bars, exactly as the
   Day Trader skill's own tests do.
 
-The mock resolver in `environment.py` compares total board power and derives
-survivors from the margin; it is replaced by the market replay in M2.
+Implemented in M2 as `tft.combat.MarketResolver`: a unit's score is its
+strategy's profit on its symbol's bars minus a penalised drawdown (items shield
+part of it), times its size (power, scaled by items); the board's score adds the
+trait and augment bonuses. The first mock, `PowerResolver`, remains available
+with `--no-market`. Slices are ``slice_bars`` consecutive daily bars (10 by
+default) dealt from the pack by the game's seed.
 
 ### 7.9 Lobby, multiplayer and bots
 
@@ -342,8 +347,8 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 | --- | --- | --- |
 | **M0 Mock** (released as v0.1.0) | Roster v0, environment mock (rounds, shop, pool, economy, star-ups, levels, augments, carousel, PvE, eliminations), `PowerResolver`, greedy bot, PRD | Deterministic eight-bot game runs to a result under the quality gates; 95 % branch coverage |
 | **M1 Playable CLI** (released as v0.2.0) | Human actions through the API, scouting observation, replay file, rules in a config file | A person plays a full match against seven bots in a terminal; replay verifies |
-| **M2 Market replay** | Market packs, `MarketResolver`, items as stops and targets, positioning grid, preview odds | Combat decided by real historical slices; fixture-based tests; balance pass on the roster |
-| **M3 Web client** | Board UI, lobby, spectating, round summaries that explain the trading lesson | Playtest with ten external players; median round under 60 seconds |
+| **M2 Market replay** (released as v0.3.0) | Market packs, `MarketResolver`, items as stops and targets, preview odds, the scripted Market board | Combat decided by real historical slices; fixture-based tests; the positioning grid moved to M3, where a spatial client gives it meaning |
+| **M3 Web client** | Board UI with the positioning grid, lobby, spectating, round summaries that explain the trading lesson, balance pass on the roster | Playtest with ten external players; median round under 60 seconds |
 | **M4 Multiplayer and ladder** | Authoritative server, matchmaking, ranked seasons tied to market packs | Public beta |
 
 ## 12. Risks and compliance

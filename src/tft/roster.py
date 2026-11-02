@@ -423,26 +423,51 @@ def champions_of_cost(cost: int) -> tuple[Champion, ...]:
     return tuple(unit for unit in CHAMPIONS if unit.cost == cost)
 
 
+TraitEntry = tuple[str, Iterable[str]]
+"""A champion's name and every trait it counts for, emblems included."""
+
+
+def trait_counts_for(entries: Iterable[TraitEntry]) -> dict[str, int]:
+    """Count the distinct champions per trait, the genre's rule for synergies."""
+    distinct: dict[str, set[str]] = {}
+    for name, names in entries:
+        distinct.setdefault(name, set()).update(names)
+    counts: Counter[str] = Counter()
+    for names in distinct.values():
+        counts.update(names)
+    return dict(counts)
+
+
+def active_traits_for(
+    entries: Iterable[TraitEntry], traits: Mapping[str, Trait] = TRAITS
+) -> dict[str, int]:
+    """Return the unlocked tier of every known trait that is active on ``entries``."""
+    counts = trait_counts_for(entries)
+    tiers = {name: traits[name].tier(count) for name, count in counts.items() if name in traits}
+    return {name: tier for name, tier in tiers.items() if tier > 0}
+
+
+def synergy_bonus_for(entries: Iterable[TraitEntry], traits: Mapping[str, Trait] = TRAITS) -> int:
+    """Return the total trait power bonus in percent for ``entries``."""
+    counts = trait_counts_for(entries)
+    return sum(traits[name].bonus(count) for name, count in counts.items() if name in traits)
+
+
 def trait_counts(champions: Iterable[Champion]) -> dict[str, int]:
     """Count the distinct champions per trait, the genre's rule for synergies."""
-    distinct = {unit.name: unit for unit in champions}
-    counts: Counter[str] = Counter()
-    for unit in distinct.values():
-        counts.update(unit.traits)
-    return dict(counts)
+    return trait_counts_for((unit.name, unit.traits) for unit in champions)
 
 
 def active_traits(
     champions: Iterable[Champion], traits: Mapping[str, Trait] = TRAITS
 ) -> dict[str, int]:
     """Return the unlocked tier of every trait that is active on ``champions``."""
-    tiers = {name: traits[name].tier(count) for name, count in trait_counts(champions).items()}
-    return {name: tier for name, tier in tiers.items() if tier > 0}
+    return active_traits_for(((unit.name, unit.traits) for unit in champions), traits)
 
 
 def synergy_bonus(champions: Iterable[Champion], traits: Mapping[str, Trait] = TRAITS) -> int:
     """Return the total trait power bonus in percent for ``champions``."""
-    return sum(traits[name].bonus(count) for name, count in trait_counts(champions).items())
+    return synergy_bonus_for(((unit.name, unit.traits) for unit in champions), traits)
 
 
 def validate_roster(
