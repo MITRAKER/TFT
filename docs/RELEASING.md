@@ -29,6 +29,10 @@
    - creates the GitHub Release with notes generated from the merged pull requests (categories in `.github/release.yml`);
    - for a stable release, moves the `stable` tag to the release commit and marks the release as *Latest*.
 
+**Without a local git push:** open the Release workflow under Actions, press *Run workflow*,
+choose `main` and type the version (for example `0.2.0`). The workflow creates the tag
+itself and continues exactly as above. The version must already match `pyproject.toml`.
+
 For a release candidate, tag `vX.Y.Z-rc.N` instead. The workflow marks it as a
 pre-release and leaves `stable` where it is.
 

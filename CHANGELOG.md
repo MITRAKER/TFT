@@ -6,8 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
+Milestone M1: the game is playable from a terminal, and a match can be replayed and verified.
+
 ### Added
 
+- `tft.rules`: every tunable number in one `Rules` object; `tft rules` prints it as TOML, `--rules FILE` loads overrides, and a digest ties replays to the rule set they were recorded under.
+- `tft.environment`: rounds in two phases (`start_round`, `finish_round`) with an outside-controlled seat, augment offers to choose from, benching, and `scout` views of the other boards.
+- `tft.replay`: the replay format (seed, rules digest, the seat's actions per round, result), `run_replay` and `verify_replay`.
+- `tft.cli` and the `tft` command: `play` against bots with a plain-text board, shop, bench, scouting and augment picks; `sim` for bots-only matches; `replay --verify`; `rules`.
+- Release workflow: *Run workflow* with a version creates the tag and releases without a local git push.
 - `tools/bootstrap_windows.cmd`: installs Python and the GitHub CLI if missing, signs in, and applies the repository settings in one run.
 
 ## [0.1.0] - 2026-11-02
@@ -26,5 +35,6 @@ First tagged release: the repository pipeline and the M0 mock of the game.
 - `tools/release_version.py`: tag-to-version check used by the Release workflow.
 - `tools/configure_repository.py`: applies the GitHub-side settings (Dependabot alerts and security updates, secret scanning, private vulnerability reporting, the `main` and release-tag rulesets) through the GitHub CLI.
 
-[Unreleased]: https://github.com/MITRAKER/TFT/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/MITRAKER/TFT/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MITRAKER/TFT/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MITRAKER/TFT/releases/tag/v0.1.0

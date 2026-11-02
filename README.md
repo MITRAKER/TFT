@@ -18,14 +18,38 @@ The engine lives in [`src/tft`](src/tft):
 
 | Module | What it holds |
 | --- | --- |
+| `tft.rules` | Every tunable number, loadable from TOML |
 | `tft.economy` | Income, interest and streak rules |
 | `tft.roster` | The mock roster: six origins, eight classes, twenty-five original trader-champions |
 | `tft.environment` | The headless, deterministic game environment: rounds and stages, shop odds, the shared pool, star-ups, levels, augments, carousel, PvE rounds, damage and eliminations, with a pluggable `CombatResolver` and a greedy bot |
+| `tft.replay` | Replay files: seed, rules digest and the seat's actions reproduce a match |
+| `tft.cli` | The command-line client (`tft play`, `sim`, `replay`, `rules`) |
 
 The repository ships with the quality and security pipeline described below,
 so every change is tested, linted, type-checked, scanned and held to the
 NASA/JPL Power of Ten rules before it reaches `main`, and every release is a
 tagged, checksummed build with signed provenance.
+
+## Play
+
+```bash
+pip install "git+https://github.com/MITRAKER/TFT.git@stable"
+tft play --seed 7
+```
+
+You sit against seven bots. Each round shows your health, gold, level, board,
+bench, traits, shop and any augment offer; type `h` for the commands (`b 0`
+buys shop slot 0, `f 0` fields unit 0, `o` scouts the other boards, Enter
+fights). When the match ends the replay is saved under `replays/` and can be
+checked:
+
+```bash
+tft replay replays/match-7-20261102T120000Z.json --verify
+```
+
+`tft sim --seed 7` runs a bots-only match, and `tft rules > my-rules.toml`
+writes every number the engine uses so you can change them and play with
+`--rules my-rules.toml`. Python users get the same engine as a library:
 
 ```python
 from tft import Game
@@ -110,7 +134,7 @@ command with `tools/configure_repository.py`.
 ```text
 .github/            workflows, Dependabot, CODEOWNERS, issue and PR templates
 docs/               PRD, standards, release process, repository settings
-src/tft/            the engine: economy, roster, environment
+src/tft/            the engine: rules, economy, roster, environment, replay, cli
 tests/              pytest suite, 95 % branch coverage required
 tools/jpl_check.py  NASA/JPL Power of Ten checker
 tools/release_version.py  tag-to-version check used by the Release workflow
