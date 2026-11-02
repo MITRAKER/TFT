@@ -11,6 +11,9 @@ python tools/configure_repository.py --repo MITRAKER/TFT --dry-run   # shows the
 python tools/configure_repository.py --repo MITRAKER/TFT             # applies them
 ```
 
+On Windows, `tools\bootstrap_windows.cmd` does all of this in one go: it installs
+Python and the GitHub CLI if they are missing, signs you in, and runs the tool.
+
 The command is safe to repeat: it updates the rulesets in place instead of
 duplicating them. The tables below describe what it sets, so the state can also
 be checked by hand under **Settings** after cloning or transferring the

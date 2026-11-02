@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tools/bootstrap_windows.cmd`: installs Python and the GitHub CLI if missing, signs in, and applies the repository settings in one run.
+
 ## [0.1.0] - 2026-11-02
 
 First tagged release: the repository pipeline and the M0 mock of the game.
