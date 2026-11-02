@@ -274,18 +274,22 @@ def test_discarded_result_is_a_warning(tmp_path: Path) -> None:
             return 1
 
 
+        def notify(items: list[int]) -> None:
+            print(items)
+
+
         def run(items: list[int]) -> None:
             compute()
             items.append(1)
             items.sort()
-            print(items)
+            notify(items)
         """
     findings = check(tmp_path, source)
     assert [(finding.rule, finding.severity) for finding in findings] == [("JPL07", "warning")]
-    assert findings[0].line == 7
+    assert findings[0].line == 11
 
 
-# noqa, parsing, configuration, file discovery --------------------------------
+# Suppressions, parsing, configuration, file discovery -----------------------
 
 
 def test_noqa_silences_one_rule_or_all(tmp_path: Path) -> None:

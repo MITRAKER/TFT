@@ -84,8 +84,11 @@ step-by-step release process is in [docs/RELEASING.md](docs/RELEASING.md).
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the supported versions and the private
-reporting channel. The repository settings that back the pipeline are listed in
-[docs/REPOSITORY_SETTINGS.md](docs/REPOSITORY_SETTINGS.md).
+reporting channel. The repository settings that back the pipeline (Dependabot
+alerts and security updates, secret scanning, private vulnerability reporting,
+branch and tag rulesets) are listed in
+[docs/REPOSITORY_SETTINGS.md](docs/REPOSITORY_SETTINGS.md) and applied in one
+command with `tools/configure_repository.py`.
 
 ## Repository layout
 
@@ -96,6 +99,7 @@ src/tft/            the package (product code)
 tests/              pytest suite, 95 % branch coverage required
 tools/jpl_check.py  NASA/JPL Power of Ten checker
 tools/release_version.py  tag-to-version check used by the Release workflow
+tools/configure_repository.py  applies the GitHub-side settings (security, Dependabot, rulesets)
 pyproject.toml      package metadata and every tool's configuration
 requirements-dev.txt pinned development and CI tools (Dependabot keeps them current)
 ```

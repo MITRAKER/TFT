@@ -13,5 +13,6 @@ All notable changes to this project are documented here. The format follows
 - `tft.economy`: example module with `interest`, `streak_bonus`, `round_income` and `rounds_to_reach`.
 - `tools/jpl_check.py`: Power of Ten checker with `# noqa: JPLxx` suppressions and GitHub annotations.
 - `tools/release_version.py`: tag-to-version check used by the Release workflow.
+- `tools/configure_repository.py`: applies the GitHub-side settings (Dependabot alerts and security updates, secret scanning, private vulnerability reporting, the `main` and release-tag rulesets) through the GitHub CLI.
 
 [Unreleased]: https://github.com/MITRAKER/TFT/commits/main

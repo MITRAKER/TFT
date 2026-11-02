@@ -1,7 +1,19 @@
 # Repository settings
 
 Most of the pipeline lives in files in this repository. These settings live in
-GitHub itself. Check them under **Settings** after cloning or transferring the
+GitHub itself and need an administrator. Apply them all with one command, from
+any machine where the [GitHub CLI](https://cli.github.com) is logged in as an
+admin of the repository:
+
+```bash
+gh auth login
+python tools/configure_repository.py --repo MITRAKER/TFT --dry-run   # shows the steps
+python tools/configure_repository.py --repo MITRAKER/TFT             # applies them
+```
+
+The command is safe to repeat: it updates the rulesets in place instead of
+duplicating them. The tables below describe what it sets, so the state can also
+be checked by hand under **Settings** after cloning or transferring the
 repository, and whenever GitHub adds a new protection.
 
 ## Code security (Settings, Code security)

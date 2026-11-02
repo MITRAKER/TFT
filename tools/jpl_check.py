@@ -532,12 +532,22 @@ def is_void_name(name: str) -> bool:
     return name.startswith(VOID_PREFIXES) or name.startswith("__")
 
 
-def discarded_result_problem(statement: ast.Expr) -> str | None:
-    """Return why an expression statement breaks JPL07, or ``None``."""
+def returns_none(function: FuncNode) -> bool:
+    """Return whether ``function`` is annotated as returning ``None``."""
+    returns = function.returns
+    return isinstance(returns, ast.Constant) and returns.value is None
+
+
+def discarded_result_problem(statement: ast.Expr, void_functions: frozenset[str]) -> str | None:
+    """Return why an expression statement breaks JPL07, or ``None``.
+
+    ``void_functions`` holds the names of the functions in the file that are
+    annotated ``-> None``; calling them for their effect is the intended use.
+    """
     if not isinstance(statement.value, ast.Call):
         return None
     name = call_name(statement.value)
-    if name is None or is_void_name(name):
+    if name is None or name in void_functions or is_void_name(name):
         return None
     return (
         f"the result of {name}() is discarded; use it, assign it, or add "
@@ -545,10 +555,13 @@ def discarded_result_problem(statement: ast.Expr) -> str | None:
     )
 
 
-def check_discarded_results(tree: ast.Module, path: str) -> list[Finding]:
+def check_discarded_results(
+    tree: ast.Module, functions: Sequence[Function], path: str
+) -> list[Finding]:
     """JPL07 (warning): report calls whose result is thrown away."""
+    void = frozenset(function.node.name for function in functions if returns_none(function.node))
     statements = (node for node in ast.walk(tree) if isinstance(node, ast.Expr))
-    problems = ((statement, discarded_result_problem(statement)) for statement in statements)
+    problems = ((statement, discarded_result_problem(statement, void)) for statement in statements)
     return [
         Finding(path, statement.lineno, "JPL07", WARNING, message)
         for statement, message in problems
@@ -599,7 +612,7 @@ def check_file(file: Path, config: Config, root: Path) -> list[Finding]:
         *check_assertions(functions, config, path),
         *check_scope(tree, path),
         *check_dynamic_code(tree, path),
-        *check_discarded_results(tree, path),
+        *check_discarded_results(tree, functions, path),
     ]
     lines = source.splitlines()
     kept = [finding for finding in findings if not suppressed(lines, finding)]
