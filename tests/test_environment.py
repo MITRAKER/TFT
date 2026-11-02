@@ -7,6 +7,7 @@ from random import Random
 import pytest
 
 from tft import environment as env
+from tft.combat import CombatContext
 from tft.environment import (
     AUGMENTS,
     BENCH_SIZE,
@@ -325,12 +326,13 @@ def test_power_resolver_outcomes() -> None:
     strong, weak = Player("strong", level=2), Player("weak")
     strong.board = [Unit(BULL), Unit(GAZELLE)]
     weak.board = [Unit(PIP)]
-    result = PowerResolver().resolve(strong, weak, Random(0))
+    context = CombatContext(RoundId.make(2, 1))
+    result = PowerResolver().resolve(strong, weak, Random(0), context)
     assert (result.winner, result.loser) == ("strong", "weak")
     assert 1 <= result.survivors <= 2
-    assert PowerResolver().resolve(weak, strong, Random(0)).winner == "strong"
-    assert PowerResolver().resolve(weak, Player("empty"), Random(0)).winner == "weak"
-    assert PowerResolver().resolve(Player("a"), Player("b"), Random(0)).is_draw
+    assert PowerResolver().resolve(weak, strong, Random(0), context).winner == "strong"
+    assert PowerResolver().resolve(weak, Player("empty"), Random(0), context).winner == "weak"
+    assert PowerResolver().resolve(Player("a"), Player("b"), Random(0), context).is_draw
 
 
 # Game -----------------------------------------------------------------------
@@ -419,7 +421,9 @@ def test_scout_shows_the_other_boards() -> None:
 
 def test_step_reports_eliminations_in_order() -> None:
     class HomeWins:
-        def resolve(self, home: Player, away: Player, _rng: Random, /) -> CombatResult:
+        def resolve(
+            self, home: Player, away: Player, _rng: Random, _ctx: object, /
+        ) -> CombatResult:
             return CombatResult(home.name, away.name, 9)
 
     game = Game(["ana", "bo"], seed=1, resolver=HomeWins())
@@ -438,7 +442,9 @@ def test_step_reports_eliminations_in_order() -> None:
 
 def test_duel_rejects_a_half_result() -> None:
     class Broken:
-        def resolve(self, home: Player, away: Player, _rng: Random, /) -> CombatResult:
+        def resolve(
+            self, home: Player, away: Player, _rng: Random, _ctx: object, /
+        ) -> CombatResult:
             return CombatResult(home.name, None, 1)
 
     game = Game(["ana", "bo"], seed=1, resolver=Broken())
@@ -481,11 +487,112 @@ def test_market_fight_outcomes() -> None:
     weak = game.players[0]
     result = game.fight_market(weak, RoundId.make(3, 1))
     assert result.winner == env.MARKET
-    assert weak.health == STARTING_HEALTH - stage_damage(3) - env.MARKET_SURVIVORS
+    assert weak.health == STARTING_HEALTH - stage_damage(3) - result.survivors
+    assert weak.streak == -1
     strong = game.players[1]
     strong.level = 5
     strong.board = [Unit(BULL, star=3) for _ in range(5)]
     assert game.fight_market(strong, RoundId.make(2, 1)).winner == "bo"
+    assert strong.streak == 1
+
+
+def test_market_board_grows_with_the_stage() -> None:
+    boards = [env.market_board(RoundId.make(stage, 1)) for stage in (1, 2, 4, 7)]
+    assert [len(board.board) for board in boards] == [2, 3, 5, 8]
+    assert [board.board[0].star for board in boards] == [1, 1, 2, 2]
+    assert boards[-1].board[0].champion.cost == 5
+    assert len(env.market_board(RoundId.make(3, 7)).board) == 5
+    powers = [env.market_power(RoundId.make(stage, 1)) for stage in range(1, 8)]
+    assert powers == sorted(powers)
+
+
+def test_components_drop_and_items_are_crafted_and_worn() -> None:
+    game = Game(["you", "ana"], seed=8, policies={"you": None})
+    you = game.players[0]
+    game.prepare(you, RoundId.make(1, 1))
+    assert len(you.components) == 1
+    game.prepare(you, RoundId.make(2, 4))
+    assert len(you.components) == 2
+    item = you.craft(0, 1)
+    assert you.components == []
+    assert you.items == [item]
+    with pytest.raises(ValueError, match="no components"):
+        you.craft(0, 1)
+    you.components = [env.COMPONENTS[0], env.COMPONENTS[1]]
+    with pytest.raises(ValueError, match="two different"):
+        you.craft(0, 0)
+    unit = Unit(PIP)
+    you.bench.append(unit)
+    assert you.equip(unit, 0) is item
+    assert unit.describe().endswith(f"[{item.name}]")
+    with pytest.raises(ValueError, match="no items"):
+        you.equip(unit, 0)
+    with pytest.raises(ValueError, match="does not own"):
+        you.equip(Unit(DRONE), 0)
+    you.items = [you.craft(0, 1)] * 3
+    for _ in range(2):
+        _ = you.equip(unit, 0)
+    with pytest.raises(ValueError, match="already holds"):
+        you.equip(unit, 0)
+    assert you.sell(unit, game.pool) == 1
+    assert len(you.items) == 4
+
+
+def test_merge_passes_items_on_and_the_index_fund_adds_a_slot() -> None:
+    from tft.items import Component, craft  # noqa: PLC0415
+
+    player = Player("tester")
+    holders = [
+        Unit(PIP, items=[craft(Component.STOP_ORDER, Component.STOP_ORDER)]) for _ in range(3)
+    ]
+    player.bench = holders
+    player.merge("Pip Squeak")
+    (kept,) = player.units
+    assert kept.star == 2
+    assert len(kept.items) == 3
+    player.items = []
+    four = [
+        Unit(DRONE, items=[craft(Component.LIMIT_ORDER, Component.LIMIT_ORDER)]) for _ in range(3)
+    ]
+    player.bench = [kept, *four]
+    player.merge("Index Drone")
+    assert len(player.items) == 0 or all(item.name == "Scaling Out" for item in player.items)
+    fund = Unit(BULL, items=[craft(Component.PROSPECTUS, Component.PROSPECTUS)])
+    player.board = [fund]
+    assert player.board_limit == player.level + 1
+
+
+def test_greedy_bot_uses_its_components() -> None:
+    player = stocked_player(gold=30, level=3)
+    player.components = [env.COMPONENTS[0], env.COMPONENTS[1], env.COMPONENTS[2]]
+    greedy_policy(player, Pool(), Random(0))
+    assert len(player.components) == 1
+    assert player.items == []
+    assert sum(len(unit.items) for unit in player.board) == 1
+
+
+def test_a_market_game_deals_slices_and_previews_odds() -> None:
+    from tft.market import load_builtin  # noqa: PLC0415
+
+    pack = load_builtin()
+    game = Game(["you", "ana", "bo"], seed=11, pack=pack, policies={"you": None})
+    with pytest.raises(ValueError, match="needs a market pack"):
+        Game(["you", "ana"], policies={"you": None}).preview_odds("you")
+    round_id = game.start_round()
+    assert game.slice is not None
+    assert len(game.slice.dates) == game.rules.slice_bars
+    you = game.player("you")
+    you.buy(0, game.pool)
+    you.field_unit(you.bench[0])
+    odds = game.preview_odds("you")
+    assert [name for name, _ in odds] == ["ana", "bo"]
+    assert all(0.0 <= probability <= 1.0 for _, probability in odds)
+    assert odds == game.preview_odds("you")
+    report = game.finish_round()
+    assert report.round_id == round_id
+    assert report.slice_label is not None
+    placements = game.run()
+    assert sorted(placements) == ["ana", "bo", "you"]
 
 
 def test_player_lookup() -> None:

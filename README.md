@@ -21,7 +21,11 @@ The engine lives in [`src/tft`](src/tft):
 | `tft.rules` | Every tunable number, loadable from TOML |
 | `tft.economy` | Income, interest and streak rules |
 | `tft.roster` | The mock roster: six origins, eight classes, twenty-five original trader-champions |
-| `tft.environment` | The headless, deterministic game environment: rounds and stages, shop odds, the shared pool, star-ups, levels, augments, carousel, PvE rounds, damage and eliminations, with a pluggable `CombatResolver` and a greedy bot |
+| `tft.environment` | The headless, deterministic game environment: rounds and stages, shop odds, the shared pool, star-ups, levels, augments, carousel, component drops, PvE rounds against the scripted Market, damage and eliminations, with a greedy bot |
+| `tft.market` | Market packs: aligned bar series per symbol grouped by origin, slices, the built-in starter pack, and builders from Yahoo Finance responses |
+| `tft.strategies` | One trading strategy per class, scored on a slice: profit, drawdown, trades |
+| `tft.items` | Eight components, 36 completed items, emblems; effects on stops, targets, size and drawdown |
+| `tft.combat` | The resolvers (`PowerResolver`, `MarketResolver`), the scoring, and the preview odds on bootstrapped slices |
 | `tft.replay` | Replay files: seed, rules digest and the seat's actions reproduce a match |
 | `tft.cli` | The command-line client (`tft play`, `sim`, `replay`, `rules`) |
 
@@ -37,9 +41,14 @@ pip install "git+https://github.com/MITRAKER/TFT.git@stable"
 tft play --seed 7
 ```
 
-You sit against seven bots. Each round shows your health, gold, level, board,
-bench, traits, shop and any augment offer; type `h` for the commands (`b 0`
-buys shop slot 0, `f 0` fields unit 0, `o` scouts the other boards, Enter
+You sit against seven bots, and every fight is decided on a slice of real
+market history: each unit trades its class's strategy (a breakout, a mean
+reversion, a hedge) on a symbol of its origin, sized by its stars and shaped by
+its items, and the board with the better risk-adjusted result wins. Each round
+shows your health, gold, level, board, bench, traits, components, items, shop
+and any augment offer; type `h` for the commands (`b 0` buys shop slot 0, `f 0`
+fields unit 0, `c 0 1` crafts an item from two components, `i 0 0` equips it,
+`o` scouts the other boards, `p` previews your odds on replayed slices, Enter
 fights). When the match ends the replay is saved under `replays/` and can be
 checked:
 
@@ -47,8 +56,9 @@ checked:
 tft replay replays/match-7-20261102T120000Z.json --verify
 ```
 
-`tft sim --seed 7` runs a bots-only match, and `tft rules > my-rules.toml`
-writes every number the engine uses so you can change them and play with
+`tft sim --seed 7` runs a bots-only match, `--no-market` falls back to the
+power comparison of the first mock, and `tft rules > my-rules.toml` writes
+every number the engine uses so you can change them and play with
 `--rules my-rules.toml`. Python users get the same engine as a library:
 
 ```python
@@ -109,6 +119,22 @@ GitHub Actions and the Python tooling, and security updates for anything with a
 published advisory. Every action is pinned to a full commit SHA and every
 workflow token carries the least privilege it needs.
 
+## Market packs
+
+The starter pack ships inside the package: 29 US stocks over 60 trading days
+of 2026, built from the MIT-licensed fixtures of the Day Trader skill. Its
+origins are stand-ins (for example the volatile names play "Crypto") until a
+pack with real asset classes replaces it. Build your own from saved Yahoo
+Finance responses or by fetching:
+
+```bash
+python tools/build_market_pack.py --from-dir tests/fixtures/market --name starter --out packs/starter.json
+python tools/build_market_pack.py --fetch AAPL,KO,XOM,TLT,GLD --range 6mo --name live --out packs/live.json
+tft play --pack packs/live.json
+```
+
+A replay records the pack it was played on and refuses to run on another.
+
 ## Standards
 
 The code standards and the mapping of each of the ten NASA/JPL rules to the tool
@@ -134,11 +160,13 @@ command with `tools/configure_repository.py`.
 ```text
 .github/            workflows, Dependabot, CODEOWNERS, issue and PR templates
 docs/               PRD, standards, release process, repository settings
-src/tft/            the engine: rules, economy, roster, environment, replay, cli
+src/tft/            the engine: rules, economy, roster, market, strategies, items, combat, environment, replay, cli
+src/tft/packs/      the built-in starter market pack
 tests/              pytest suite, 95 % branch coverage required
 tools/jpl_check.py  NASA/JPL Power of Ten checker
 tools/release_version.py  tag-to-version check used by the Release workflow
 tools/configure_repository.py  applies the GitHub-side settings (security, Dependabot, rulesets)
+tools/build_market_pack.py  builds a market pack from Yahoo Finance responses
 tools/bootstrap_windows.cmd  Windows one-click: installs Python and the GitHub CLI, signs in, runs the tool
 pyproject.toml      package metadata and every tool's configuration
 requirements-dev.txt pinned development and CI tools (Dependabot keeps them current)

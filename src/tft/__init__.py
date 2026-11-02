@@ -4,14 +4,17 @@ The product is a trading auto-battler (see ``docs/PRD.md``). :mod:`tft.rules`
 holds every tunable number, :mod:`tft.economy` the income rules,
 :mod:`tft.roster` the mock traits and champions, :mod:`tft.environment` the
 headless, deterministic game environment with its pluggable combat resolver,
-:mod:`tft.replay` the replay format, and :mod:`tft.cli` the command-line client
-(``python -m tft`` or the ``tft`` command).
+:mod:`tft.market` the market packs of real bars, :mod:`tft.strategies` one
+trading strategy per class, :mod:`tft.items` the risk tools, :mod:`tft.combat`
+the resolvers and the preview, :mod:`tft.replay` the replay format, and
+:mod:`tft.cli` the command-line client (``python -m tft`` or the ``tft`` command).
 """
 
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
+from tft.combat import CombatResolver, MarketResolver, PowerResolver
 from tft.economy import (
     BASE_INCOME,
     MAX_INTEREST,
@@ -21,7 +24,8 @@ from tft.economy import (
     rounds_to_reach,
     streak_bonus,
 )
-from tft.environment import CombatResolver, Game, Player, PowerResolver, RoundId
+from tft.environment import Game, Player, RoundId
+from tft.market import MarketPack, load_builtin
 from tft.replay import Replay, run_replay, verify_replay
 from tft.roster import CHAMPIONS, TRAITS, Champion, Trait
 from tft.rules import DEFAULT_RULES, Rules
@@ -41,6 +45,8 @@ __all__ = [
     "Champion",
     "CombatResolver",
     "Game",
+    "MarketPack",
+    "MarketResolver",
     "Player",
     "PowerResolver",
     "Replay",
@@ -49,6 +55,7 @@ __all__ = [
     "Trait",
     "__version__",
     "interest",
+    "load_builtin",
     "round_income",
     "rounds_to_reach",
     "run_replay",

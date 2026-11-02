@@ -1,21 +1,23 @@
-"""The game environment: lobby, rounds, shop, pool, levels, damage.
+"""The game environment: lobby, rounds, shop, pool, levels, items, damage.
 
 A headless, deterministic simulation of the auto-battler loop around the roster
 in :mod:`tft.roster`, with every number read from a :class:`tft.rules.Rules`.
-Combat is a power comparison until the market resolver of milestone M2 plugs in
-through :class:`CombatResolver`; everything else (economy, shop odds, shared
-pool, star-ups, levels, stage damage, streaks, augments, carousel, PvE rounds,
+Combat goes through a :class:`tft.combat.CombatResolver`: the market replay
+when the game has a :class:`tft.market.MarketPack`, the power comparison
+otherwise. Everything else (economy, shop odds, shared pool, star-ups, levels,
+stage damage, streaks, augments, carousel, component drops, PvE rounds,
 eliminations) follows the genre's conventions.
 
-A round has two phases. :meth:`Game.start_round` pays income, runs the round's
-events, rolls every shop and lets the bots act. A seat whose policy is ``None``
-is driven from outside (the command-line client, or a replay) between the two
-calls. :meth:`Game.finish_round` resolves combat and damage.
+A round has two phases. :meth:`Game.start_round` deals the round's market
+slice, pays income, runs the round's events, rolls every shop and lets the
+bots act. A seat whose policy is ``None`` is driven from outside (the
+command-line client, or a replay) between the two calls.
+:meth:`Game.finish_round` resolves combat and damage.
 
 Determinism: every random draw comes from the one :class:`random.Random` the
-game owns, so a seed, a rule set and the outside seat's actions reproduce a
-whole match. Every loop is bounded: a match runs at most ``rules.max_rounds``
-rounds.
+game owns, so a seed, a rule set, a pack and the outside seat's actions
+reproduce a whole match. Every loop is bounded: a match runs at most
+``rules.max_rounds`` rounds.
 """
 
 from __future__ import annotations
@@ -23,19 +25,60 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from random import Random
-from typing import Protocol
 
+from tft.combat import (
+    CombatContext,
+    CombatResolver,
+    CombatResult,
+    MarketResolver,
+    PowerResolver,
+    preview,
+)
 from tft.economy import round_income
-from tft.roster import CHAMPIONS, Champion, active_traits, synergy_bonus
+from tft.items import Component, Effect, Item, combined_effect, craft
+from tft.market import MarketPack, Slice
+from tft.roster import CHAMPIONS, Champion, TraitEntry, active_traits_for, synergy_bonus_for
 from tft.rules import DEFAULT_RULES, Rules
+
+__all__ = [
+    "AUGMENTS",
+    "MARKET",
+    "Augment",
+    "CombatContext",
+    "CombatResolver",
+    "CombatResult",
+    "Game",
+    "MarketResolver",
+    "Player",
+    "Policy",
+    "Pool",
+    "PowerResolver",
+    "RoundId",
+    "RoundReport",
+    "SeatView",
+    "Unit",
+    "greedy_policy",
+    "market_board",
+    "market_power",
+    "roll_shop",
+    "round_sequence",
+    "seat_view",
+    "sell_value",
+    "stage_damage",
+]
 
 MARKET = "The Market"
 """The PvE opponent's name."""
 
 COSTS: tuple[int, ...] = (1, 2, 3, 4, 5)
+COMPONENTS: tuple[Component, ...] = tuple(Component)
 
 PHASE_BETWEEN = "between rounds"
 PHASE_PLANNING = "planning"
+
+MARKET_MID_STAGE = 3
+MARKET_TOP_COST = 4
+MARKET_FINAL_STAGE = 7
 
 # Aliases of the default rule set, for readers and for callers that never change the rules.
 STARTING_HEALTH = DEFAULT_RULES.starting_health
@@ -46,7 +89,6 @@ MAX_LEVEL = DEFAULT_RULES.max_level
 MAX_ROUNDS = DEFAULT_RULES.max_rounds
 POOL_SIZES = DEFAULT_RULES.pool_sizes
 SHOP_ODDS = DEFAULT_RULES.shop_odds
-MARKET_SURVIVORS = DEFAULT_RULES.market_survivors
 
 
 @dataclass(frozen=True)
@@ -91,14 +133,6 @@ def stage_damage(stage: int, rules: Rules = DEFAULT_RULES) -> int:
     return table[max(listed for listed in table if listed <= stage)]
 
 
-def market_power(round_id: RoundId, rules: Rules = DEFAULT_RULES) -> int:
-    """Return the Market's power for a PvE round: it grows with the stage, more on boss rounds."""
-    base = rules.market_power_per_stage * round_id.stage * round_id.stage
-    if round_id.number == rules.boss_round:
-        return base * rules.market_boss_factor_tenths // 10
-    return base
-
-
 @dataclass(frozen=True)
 class Augment:
     """A rule-changing pick: the mock has gold and board-power effects only."""
@@ -123,10 +157,11 @@ AUGMENTS: tuple[Augment, ...] = (
 
 @dataclass(eq=False)
 class Unit:
-    """A champion on a bench or board at a star level. Units compare by identity."""
+    """A champion on a bench or board at a star level, with its items. Units compare by identity."""
 
     champion: Champion
     star: int = 1
+    items: list[Item] = field(default_factory=list)
 
     def power(self, rules: Rules = DEFAULT_RULES) -> int:
         """Return the unit's power at its star level."""
@@ -136,9 +171,23 @@ class Unit:
         """Return how many one-star copies the unit represents (1, 3 or 9 by default)."""
         return int(rules.copies_to_star_up ** (self.star - 1))
 
+    @property
+    def effect(self) -> Effect:
+        """Return the combined effect of the unit's items."""
+        return combined_effect(self.items)
+
+    @property
+    def traits(self) -> tuple[str, ...]:
+        """Return the champion's traits plus any emblem its items grant."""
+        emblems = tuple(item.effect.trait for item in self.items if item.effect.trait is not None)
+        return (*self.champion.traits, *emblems)
+
     def describe(self) -> str:
-        """Return ``Name N*``."""
-        return f"{self.champion.name} {self.star}*"
+        """Return ``Name N*`` with the item names in brackets when it holds any."""
+        base = f"{self.champion.name} {self.star}*"
+        if not self.items:
+            return base
+        return f"{base} [{', '.join(item.name for item in self.items)}]"
 
 
 def sell_value(cost: int, star: int, rules: Rules = DEFAULT_RULES) -> int:
@@ -231,7 +280,7 @@ def roll_shop(
 
 @dataclass
 class Player:
-    """One seat in the lobby: health, economy, level, bench, board, shop and augments."""
+    """One seat in the lobby: health, economy, level, bench, board, shop, items and augments."""
 
     name: str
     health: int = STARTING_HEALTH
@@ -244,6 +293,8 @@ class Player:
     shop: list[Champion | None] = field(default_factory=list)
     augments: list[Augment] = field(default_factory=list)
     pending_augments: list[Augment] = field(default_factory=list)
+    components: list[Component] = field(default_factory=list)
+    items: list[Item] = field(default_factory=list)
     rules: Rules = DEFAULT_RULES
 
     @property
@@ -253,21 +304,28 @@ class Player:
 
     @property
     def board_limit(self) -> int:
-        """Return how many units the player may field: one per level."""
-        return self.level
+        """Return how many units the player may field: one per level, plus item slots."""
+        return self.level + sum(unit.effect.extra_slots for unit in self.board)
 
     @property
     def units(self) -> list[Unit]:
         """Return every unit the player owns, board first."""
         return [*self.board, *self.bench]
 
+    def board_entries(self) -> list[TraitEntry]:
+        """Return the fielded champions with every trait they count for, emblems included."""
+        return [(unit.champion.name, unit.traits) for unit in self.board]
+
+    @property
+    def bonus_percent(self) -> int:
+        """Return the board's trait and augment bonus in percent."""
+        return synergy_bonus_for(self.board_entries()) + sum(a.power_percent for a in self.augments)
+
     @property
     def team_power(self) -> int:
         """Return the board's power with trait and augment bonuses applied."""
         base = sum(unit.power(self.rules) for unit in self.board)
-        bonus = synergy_bonus(unit.champion for unit in self.board)
-        bonus += sum(augment.power_percent for augment in self.augments)
-        return base * (100 + bonus) // 100
+        return base * (100 + self.bonus_percent) // 100
 
     def buy(self, slot: int, pool: Pool) -> None:
         """Buy the champion in shop ``slot`` onto the bench and merge star-ups.
@@ -303,6 +361,8 @@ class Player:
     def merge(self, name: str) -> None:
         """Combine copies of ``name`` at the same star into the next star, repeatedly.
 
+        The kept copy inherits the items of the copies it absorbs, up to the limit.
+
         Raises:
             ValueError: If the rules need fewer than two copies for a star-up.
         """
@@ -318,7 +378,16 @@ class Player:
                 kept, *extra = same[:needed]
                 kept.star += 1
                 for unit in extra:
-                    self.remove(unit)
+                    self.absorb(kept, unit)
+
+    def absorb(self, kept: Unit, extra: Unit) -> None:
+        """Remove ``extra`` and hand its items to ``kept``; the overflow goes to the inventory."""
+        self.remove(extra)
+        for item in extra.items:
+            if len(kept.items) < self.rules.max_items_per_unit:
+                kept.items.append(item)
+            else:
+                self.items.append(item)
 
     def remove(self, unit: Unit) -> None:
         """Take ``unit`` off the board or the bench.
@@ -335,12 +404,58 @@ class Player:
             raise ValueError(msg)
 
     def sell(self, unit: Unit, pool: Pool) -> int:
-        """Sell ``unit``, return its copies to the pool, and return the gold received."""
+        """Sell ``unit``: copies back to the pool, items to the inventory; return the gold."""
         self.remove(unit)
+        self.items.extend(unit.items)
+        unit.items = []
         pool.give_back(unit.champion.name, unit.copies(self.rules))
         value = sell_value(unit.champion.cost, unit.star, self.rules)
         self.gold += value
         return value
+
+    def craft(self, first: int, second: int) -> Item:
+        """Combine components ``first`` and ``second`` (inventory numbers) into an item.
+
+        Raises:
+            ValueError: If either number is out of range or they are the same component.
+        """
+        count = len(self.components)
+        if first == second or not (0 <= first < count and 0 <= second < count):
+            msg = (
+                f"craft needs two different component numbers from 0 to {count - 1}"
+                if count
+                else "no components"
+            )
+            raise ValueError(msg)
+        item = craft(self.components[first], self.components[second])
+        for index in sorted((first, second), reverse=True):
+            del self.components[index]
+        self.items.append(item)
+        return item
+
+    def equip(self, unit: Unit, item_index: int) -> Item:
+        """Give item ``item_index`` of the inventory to ``unit``.
+
+        Raises:
+            ValueError: If the player does not own the unit, the item number is
+                out of range, or the unit already holds the maximum.
+        """
+        if unit not in self.units:
+            msg = f"{self.name} does not own that {unit.champion.name}"
+            raise ValueError(msg)
+        if not 0 <= item_index < len(self.items):
+            msg = (
+                f"item number must be 0 to {len(self.items) - 1}"
+                if self.items
+                else "no items to equip"
+            )
+            raise ValueError(msg)
+        if len(unit.items) >= self.rules.max_items_per_unit:
+            msg = f"{unit.champion.name} already holds {self.rules.max_items_per_unit} items"
+            raise ValueError(msg)
+        item = self.items.pop(item_index)
+        unit.items.append(item)
+        return item
 
     def add_xp(self, amount: int) -> None:
         """Grant experience and level up as far as it reaches, never past the cap.
@@ -461,8 +576,18 @@ Policy = Callable[[Player, Pool, Random], None]
 """A planning-phase decision maker for a bot seat: acts on the player, then returns."""
 
 
+def greedy_items(player: Player) -> None:
+    """Craft every pair of components and hand the items to the strongest fielded units."""
+    rules = player.rules
+    for _ in range(len(player.components) // 2):
+        _ = player.craft(0, 1)
+    for unit in sorted(player.board, key=lambda unit: -unit.power(rules)):
+        while player.items and len(unit.items) < rules.max_items_per_unit:
+            _ = player.equip(unit, 0)
+
+
 def greedy_policy(player: Player, pool: Pool, rng: Random) -> None:
-    """A baseline bot: buy what it can afford, field the strongest units, then level.
+    """A baseline bot: buy what it can afford, field the strongest units, level, use items.
 
     Raises:
         ValueError: If the player's shop has not been rolled.
@@ -483,41 +608,7 @@ def greedy_policy(player: Player, pool: Pool, rng: Random) -> None:
         and player.gold >= rules.xp_purchase_cost + rules.econ_reserve
     ):
         player.buy_xp()
-
-
-@dataclass(frozen=True)
-class CombatResult:
-    """Who won a fight, who lost, and how many winning units were left standing."""
-
-    winner: str | None
-    loser: str | None
-    survivors: int
-
-    @property
-    def is_draw(self) -> bool:
-        """Return whether nobody won."""
-        return self.winner is None
-
-
-class CombatResolver(Protocol):
-    """The seam where the market replay plugs in."""
-
-    def resolve(self, home: Player, away: Player, rng: Random, /) -> CombatResult:
-        """Fight ``home`` against ``away`` and return the result."""
-
-
-class PowerResolver:
-    """The mock resolver: the stronger board wins and survivors scale with the margin."""
-
-    def resolve(self, home: Player, away: Player, _rng: Random, /) -> CombatResult:
-        """Compare team power; a tie is a draw."""
-        home_power, away_power = home.team_power, away.team_power
-        if home_power == away_power:
-            return CombatResult(None, None, 0)
-        winner, loser = (home, away) if home_power > away_power else (away, home)
-        strong, weak = max(home_power, away_power), min(home_power, away_power)
-        survivors = max(1, round(len(winner.board) * (strong - weak) / strong))
-        return CombatResult(winner.name, loser.name, survivors)
+    greedy_items(player)
 
 
 @dataclass(frozen=True)
@@ -527,11 +618,12 @@ class RoundReport:
     round_id: RoundId
     results: tuple[CombatResult, ...]
     eliminated: tuple[str, ...]
+    slice_label: str | None = None
 
 
 @dataclass(frozen=True)
 class SeatView:
-    """What scouting shows of another seat: everything but the shop and the bench."""
+    """What scouting shows of another seat: everything but the shop, the bench and the inventory."""
 
     name: str
     health: int
@@ -544,7 +636,7 @@ class SeatView:
 
 def seat_view(player: Player) -> SeatView:
     """Return the public view of ``player``."""
-    traits = active_traits(unit.champion for unit in player.board)
+    traits = active_traits_for(player.board_entries())
     return SeatView(
         player.name,
         player.health,
@@ -556,8 +648,27 @@ def seat_view(player: Player) -> SeatView:
     )
 
 
+def market_board(
+    round_id: RoundId, rules: Rules = DEFAULT_RULES, champions: Sequence[Champion] = CHAMPIONS
+) -> Player:
+    """Return the scripted Market: a board that grows with the stage, bigger on boss rounds."""
+    stage = round_id.stage
+    count = min(stage + 1, rules.lobby_size) + (1 if round_id.number == rules.boss_round else 0)
+    cost = max(COSTS) if stage >= MARKET_FINAL_STAGE else min(stage, MARKET_TOP_COST)
+    star = 1 if stage <= MARKET_MID_STAGE else min(2, rules.max_star)
+    ranked = sorted(enumerate(champions), key=lambda item: (abs(item[1].cost - cost), item[0]))
+    market = Player(MARKET, level=count, rules=rules)
+    market.board = [Unit(champion, star) for _, champion in ranked[:count]]
+    return market
+
+
+def market_power(round_id: RoundId, rules: Rules = DEFAULT_RULES) -> int:
+    """Return the power of the scripted Market's board for ``round_id``."""
+    return market_board(round_id, rules).team_power
+
+
 class Game:
-    """A whole match: the lobby, the shared pool, the round loop and the standings."""
+    """A whole match: lobby, shared pool, market pack, the round loop and the standings."""
 
     def __init__(
         self,
@@ -568,12 +679,14 @@ class Game:
         resolver: CombatResolver | None = None,
         policies: Mapping[str, Policy | None] | None = None,
         champions: Sequence[Champion] = CHAMPIONS,
+        pack: MarketPack | None = None,
     ) -> None:
         """Seat the players and seed the match.
 
         ``policies`` maps a seat to its bot, or to ``None`` for a seat driven from
         outside between :meth:`start_round` and :meth:`finish_round`; seats not
-        listed get the greedy bot.
+        listed get the greedy bot. With a ``pack`` and no ``resolver``, fights are
+        decided by the market replay; without a pack, by the power comparison.
 
         Raises:
             ValueError: If the lobby size or the names are invalid, or a policy
@@ -589,10 +702,16 @@ class Game:
             msg = f"policies name seats that are not in the lobby: {', '.join(strangers)}"
             raise ValueError(msg)
         self.rules = rules
+        self.seed = seed
         self.rng = Random(seed)  # noqa: S311 - game randomness, not cryptography
         self.pool = Pool(champions, rules)
+        self.pack = pack
+        self.slice: Slice | None = None
         self.players = [Player(name, health=rules.starting_health, rules=rules) for name in names]
-        self.resolver: CombatResolver = resolver if resolver is not None else PowerResolver()
+        default: CombatResolver = (
+            MarketResolver(pack, rules) if pack is not None else PowerResolver()
+        )
+        self.resolver: CombatResolver = resolver if resolver is not None else default
         self.policies: dict[str, Policy | None] = {n: given.get(n, greedy_policy) for n in names}
         self.rounds = round_sequence(rules)
         self.round_index = 0
@@ -634,8 +753,24 @@ class Game:
         _ = self.player(name)
         return [seat_view(player) for player in self.alive if player.name != name]
 
+    def preview_odds(self, name: str) -> list[tuple[str, float]]:
+        """Return ``name``'s odds of beating each other living seat on bootstrapped market slices.
+
+        The preview draws from its own random stream, so looking never changes the match.
+
+        Raises:
+            ValueError: If the game has no market pack.
+        """
+        if self.pack is None:
+            msg = "the preview needs a market pack"
+            raise ValueError(msg)
+        seat = self.player(name)
+        rng = Random(f"preview-{self.seed}-{self.round_index}")  # noqa: S311 - game randomness
+        others = [player for player in self.alive if player.name != name]
+        return [(other.name, preview(seat, other, self.pack, self.rules, rng)) for other in others]
+
     def start_round(self) -> RoundId:
-        """Open the next round: income and events, shops, and the bots' planning.
+        """Open the next round: deal the slice, pay income, run events, roll shops, bots plan.
 
         Raises:
             RuntimeError: If the match is finished or a round is already open.
@@ -650,6 +785,9 @@ class Game:
         self.round_index += 1
         self.current = round_id
         self.phase = PHASE_PLANNING
+        self.slice = (
+            self.pack.deal(self.rng, self.rules.slice_bars) if self.pack is not None else None
+        )
         for player in self.alive:
             self.prepare(player, round_id)
         return round_id
@@ -670,9 +808,10 @@ class Game:
         results = self.fight(round_id)
         fallen = [p.name for p in self.players if not p.alive and p.name not in self.eliminated]
         self.eliminated.extend(fallen)
+        label = self.slice.label if self.slice is not None else None
         self.phase = PHASE_BETWEEN
         self.current = None
-        return RoundReport(round_id, tuple(results), tuple(fallen))
+        return RoundReport(round_id, tuple(results), tuple(fallen), label)
 
     def step(self) -> RoundReport:
         """Play one whole round with every seat on its policy."""
@@ -680,7 +819,7 @@ class Game:
         return self.finish_round()
 
     def prepare(self, player: Player, round_id: RoundId) -> None:
-        """Run a seat's start of round: income, experience, events, shop, and its bot.
+        """Run a seat's start of round: income, experience, events, drops, shop, and its bot.
 
         Raises:
             ValueError: If the player has already been eliminated.
@@ -692,6 +831,11 @@ class Game:
         player.add_xp(self.rules.xp_per_round)
         if round_id.is_augment:
             player.pending_augments = self.rng.sample(AUGMENTS, self.rules.augment_choices)
+        if round_id.is_pve:
+            drops = [
+                self.rng.choice(COMPONENTS) for _ in range(self.rules.components_per_pve_round)
+            ]
+            player.components.extend(drops)
         if round_id.is_carousel:
             self.carousel(player, round_id)
         player.shop = roll_shop(player.level, self.pool, self.rng, self.rules)
@@ -703,7 +847,7 @@ class Game:
         policy(player, self.pool, self.rng)  # noqa: JPL07 - policies act by side effect
 
     def carousel(self, player: Player, round_id: RoundId) -> None:
-        """Give the player a free champion whose cost grows with the stage, bench permitting.
+        """Give the player a component and, bench permitting, a free champion scaled to the stage.
 
         Raises:
             ValueError: If called on a round that is not a carousel.
@@ -711,6 +855,7 @@ class Game:
         if not round_id.is_carousel:
             msg = f"round {round_id.label} is not a carousel"
             raise ValueError(msg)
+        player.components.append(self.rng.choice(COMPONENTS))
         if len(player.bench) >= self.rules.bench_size:
             return
         cost = min(round_id.stage - 1, max(COSTS) - 1)
@@ -740,7 +885,7 @@ class Game:
         Raises:
             ValueError: If the resolver names a winner without a loser.
         """
-        result = self.resolver.resolve(home, away, self.rng)
+        result = self.resolver.resolve(home, away, self.rng, CombatContext(round_id, self.slice))
         if result.is_draw:
             home.record_result(None)
             away.record_result(None)
@@ -755,14 +900,22 @@ class Game:
         return result
 
     def fight_market(self, player: Player, round_id: RoundId) -> CombatResult:
-        """Fight the scripted Market: beat its power or take stage damage."""
-        if player.team_power >= market_power(round_id, self.rules):
+        """Fight the scripted Market board: win, draw, or take stage damage plus its survivors."""
+        market = market_board(round_id, self.rules)
+        context = CombatContext(round_id, self.slice)
+        result = self.resolver.resolve(player, market, self.rng, context)
+        self.settle_market(player, round_id, result)
+        return result
+
+    def settle_market(self, player: Player, round_id: RoundId, result: CombatResult) -> None:
+        """Apply a PvE result: the streak, and damage when the Market won."""
+        if result.is_draw:
+            player.record_result(None)
+        elif result.winner == player.name:
             player.record_result(True)
-            return CombatResult(player.name, MARKET, 0)
-        player.record_result(False)
-        damage = stage_damage(round_id.stage, self.rules) + self.rules.market_survivors
-        player.take_damage(damage)
-        return CombatResult(MARKET, player.name, self.rules.market_survivors)
+        else:
+            player.record_result(False)
+            player.take_damage(stage_damage(round_id.stage, self.rules) + result.survivors)
 
     def run(self) -> list[str]:
         """Play until the match is finished, every seat on its policy, and return the placements."""

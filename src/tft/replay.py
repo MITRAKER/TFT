@@ -1,4 +1,4 @@
-"""Replays: a seed, a rule set and the recorded seat actions reproduce a match.
+"""Replays: a seed, a rule set, a market pack and the recorded seat actions reproduce a match.
 
 Bots are deterministic given the game's seeded random stream, so a replay only
 needs to store what the outside-controlled seat did in each round. Running the
@@ -15,59 +15,62 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tft.environment import Game, Player, Unit
+from tft.market import MarketPack
 from tft.rules import DEFAULT_RULES, Rules
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 ACTION_FIELDS = 2
 
 
 @dataclass(frozen=True)
 class Action:
-    """One planning-phase action of the recorded seat: a kind and an optional number."""
+    """One planning-phase action of the recorded seat: a kind and its whole-number arguments."""
 
     kind: str
-    arg: int | None = None
+    args: tuple[int, ...] = ()
 
     def to_json(self) -> list[object]:
-        """Return the action as ``[kind, arg]``."""
-        return [self.kind, self.arg]
+        """Return the action as ``[kind, [args]]``."""
+        return [self.kind, list(self.args)]
 
     @classmethod
     def from_json(cls, data: object) -> Action:
-        """Rebuild an action from ``[kind, arg]``.
+        """Rebuild an action from ``[kind, [args]]``.
 
         Raises:
-            ValueError: If the data is not a kind string and an optional integer.
+            ValueError: If the data is not a kind string and a list of integers.
         """
         if not isinstance(data, list) or len(data) != ACTION_FIELDS:
             msg = f"an action is a two-item list, got {data!r}"
             raise ValueError(msg)
-        kind, arg = data
-        if not isinstance(kind, str) or not (arg is None or isinstance(arg, int)):
-            msg = f"an action is [kind, number or null], got {data!r}"
+        kind, args = data
+        numbers = isinstance(args, list) and all(
+            isinstance(a, int) and not isinstance(a, bool) for a in args
+        )
+        if not isinstance(kind, str) or not numbers:
+            msg = f"an action is [kind, [numbers]], got {data!r}"
             raise ValueError(msg)
-        return cls(kind, arg)
+        return cls(kind, tuple(args))
 
 
-def require_arg(arg: int | None, what: str) -> int:
-    """Return ``arg`` or explain which number the action needed.
+def arg_at(args: tuple[int, ...], position: int, what: str) -> int:
+    """Return argument ``position`` or explain which numbers the action needed.
 
     Raises:
-        ValueError: If ``arg`` is missing.
+        ValueError: If the argument is missing.
     """
-    if arg is None:
+    if position >= len(args):
         msg = f"this action needs {what}"
         raise ValueError(msg)
-    return arg
+    return args[position]
 
 
-def unit_at(player: Player, index: int | None) -> Unit:
-    """Return the unit numbered ``index`` in the player's units (board first, then bench).
+def unit_at(player: Player, number: int) -> Unit:
+    """Return the unit numbered ``number`` in the player's units (board first, then bench).
 
     Raises:
-        ValueError: If the number is missing or out of range.
+        ValueError: If the number is out of range.
     """
-    number = require_arg(index, "a unit number")
     units = player.units
     if not 0 <= number < len(units):
         msg = f"unit number must be 0 to {len(units) - 1}" if units else "you own no units"
@@ -75,51 +78,68 @@ def unit_at(player: Player, index: int | None) -> Unit:
     return units[number]
 
 
-def _buy(game: Game, player: Player, arg: int | None) -> str:
-    slot = require_arg(arg, "a shop slot")
+def _buy(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    slot = arg_at(args, 0, "a shop slot")
     player.buy(slot, game.pool)  # noqa: JPL07 - acts by side effect
     return f"bought shop slot {slot}; {player.gold} gold left"
 
 
-def _sell(game: Game, player: Player, arg: int | None) -> str:
-    unit = unit_at(player, arg)
+def _sell(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    unit = unit_at(player, arg_at(args, 0, "a unit number"))
     value = player.sell(unit, game.pool)
     return f"sold {unit.describe()} for {value} gold; {player.gold} gold now"
 
 
-def _reroll(game: Game, player: Player, arg: int | None) -> str:
-    del arg
+def _reroll(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    del args
     player.reroll(game.pool, game.rng)  # noqa: JPL07 - acts by side effect
     return f"rerolled; {player.gold} gold left"
 
 
-def _xp(game: Game, player: Player, arg: int | None) -> str:
-    del game, arg
+def _xp(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    del game, args
     player.buy_xp()  # noqa: JPL07 - acts by side effect
     return f"bought xp: level {player.level}, {player.xp} xp, {player.gold} gold left"
 
 
-def _field(game: Game, player: Player, arg: int | None) -> str:
+def _field(game: Game, player: Player, args: tuple[int, ...]) -> str:
     del game
-    unit = unit_at(player, arg)
+    unit = unit_at(player, arg_at(args, 0, "a unit number"))
     player.field_unit(unit)  # noqa: JPL07 - acts by side effect
     return f"fielded {unit.describe()}"
 
 
-def _bench(game: Game, player: Player, arg: int | None) -> str:
+def _bench(game: Game, player: Player, args: tuple[int, ...]) -> str:
     del game
-    unit = unit_at(player, arg)
+    unit = unit_at(player, arg_at(args, 0, "a unit number"))
     player.bench_unit(unit)  # noqa: JPL07 - acts by side effect
     return f"benched {unit.describe()}"
 
 
-def _augment(game: Game, player: Player, arg: int | None) -> str:
+def _augment(game: Game, player: Player, args: tuple[int, ...]) -> str:
     del game
-    augment = player.choose_augment(require_arg(arg, "an augment number"))
+    augment = player.choose_augment(arg_at(args, 0, "an augment number"))
     return f"took {augment.name}: {augment.text}"
 
 
-Handler = Callable[[Game, Player, int | None], str]
+def _craft(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    del game
+    first, second = (
+        arg_at(args, 0, "two component numbers"),
+        arg_at(args, 1, "two component numbers"),
+    )
+    item = player.craft(first, second)
+    return f"crafted {item.name}; it is item {len(player.items) - 1} in your inventory"
+
+
+def _equip(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    del game
+    unit = unit_at(player, arg_at(args, 0, "a unit number and an item number"))
+    item = player.equip(unit, arg_at(args, 1, "a unit number and an item number"))
+    return f"{unit.champion.name} now holds {item.name}"
+
+
+Handler = Callable[[Game, Player, tuple[int, ...]], str]
 ACTIONS: Mapping[str, Handler] = {
     "buy": _buy,
     "sell": _sell,
@@ -128,6 +148,8 @@ ACTIONS: Mapping[str, Handler] = {
     "field": _field,
     "bench": _bench,
     "augment": _augment,
+    "craft": _craft,
+    "equip": _equip,
 }
 """Every action a seat can take during planning, by name."""
 
@@ -142,17 +164,18 @@ def apply_action(game: Game, player: Player, action: Action) -> str:
     if handler is None:
         msg = f"unknown action {action.kind!r}"
         raise ValueError(msg)
-    return handler(game, player, action.arg)
+    return handler(game, player, action.args)
 
 
 @dataclass
 class Replay:
-    """A recorded match: who played, the seed, the rules, and the seat's actions per round."""
+    """A recorded match: the seats, seed, rules, pack, and the seat's actions per round."""
 
     seed: int
     players: list[str]
     seat: str
     rules_digest: str
+    pack: str | None = None
     rounds: list[list[Action]] = field(default_factory=list)
     result: list[str] | None = None
 
@@ -164,6 +187,7 @@ class Replay:
             "players": list(self.players),
             "seat": self.seat,
             "rules_digest": self.rules_digest,
+            "pack": self.pack,
             "rounds": [[action.to_json() for action in actions] for actions in self.rounds],
             "result": None if self.result is None else list(self.result),
         }
@@ -180,11 +204,13 @@ class Replay:
             raise ValueError(msg)
         try:
             rounds = [[Action.from_json(item) for item in actions] for actions in data["rounds"]]
+            pack = data.get("pack")
             replay = cls(
                 int(data["seed"]),
                 [str(name) for name in data["players"]],
                 str(data["seat"]),
                 str(data["rules_digest"]),
+                None if pack is None else str(pack),
                 rounds,
                 None if data.get("result") is None else [str(n) for n in data["result"]],
             )
@@ -204,16 +230,24 @@ class Replay:
         return cls.from_json(json.loads(path.read_text(encoding="utf-8")))
 
 
-def run_replay(replay: Replay, rules: Rules = DEFAULT_RULES) -> list[str]:
+def run_replay(
+    replay: Replay, rules: Rules = DEFAULT_RULES, pack: MarketPack | None = None
+) -> list[str]:
     """Rebuild the match, play the recorded actions back, and return the placements.
 
     Raises:
-        ValueError: If ``rules`` is not the rule set the replay was recorded under.
+        ValueError: If ``rules`` or ``pack`` are not what the replay was recorded under.
     """
     if rules.digest() != replay.rules_digest:
         msg = "the replay was recorded under a different rule set"
         raise ValueError(msg)
-    game = Game(replay.players, seed=replay.seed, rules=rules, policies={replay.seat: None})
+    given = None if pack is None else pack.name
+    if given != replay.pack:
+        msg = f"the replay was recorded with market pack {replay.pack!r}, not {given!r}"
+        raise ValueError(msg)
+    game = Game(
+        replay.players, seed=replay.seed, rules=rules, policies={replay.seat: None}, pack=pack
+    )
     seat = game.player(replay.seat)
     for actions in replay.rounds:
         if game.finished:
@@ -225,6 +259,8 @@ def run_replay(replay: Replay, rules: Rules = DEFAULT_RULES) -> list[str]:
     return game.run()
 
 
-def verify_replay(replay: Replay, rules: Rules = DEFAULT_RULES) -> bool:
+def verify_replay(
+    replay: Replay, rules: Rules = DEFAULT_RULES, pack: MarketPack | None = None
+) -> bool:
     """Return whether playing the replay back gives the placements it recorded."""
-    return replay.result is not None and run_replay(replay, rules) == replay.result
+    return replay.result is not None and run_replay(replay, rules, pack) == replay.result

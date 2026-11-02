@@ -2,11 +2,12 @@
 
 Examples::
 
-    tft play --seed 7                      # you against seven bots
+    tft play --seed 7                      # you against seven bots, on the starter market pack
+    tft play --seed 7 --no-market          # the same, decided by the power comparison instead
     tft sim --seed 7                       # bots only; prints the placements
     tft replay replays/match-7.json --verify
     tft rules > my-rules.toml              # the default rule set, ready to edit
-    tft play --rules my-rules.toml
+    tft play --rules my-rules.toml --pack packs/live.json
 
 The client is plain text and standard library only. Its input and output are
 injectable, so the whole flow is covered by tests.
@@ -21,9 +22,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tft import __version__
+from tft.combat import CombatResult
 from tft.environment import Game, Player, RoundId, RoundReport, SeatView
+from tft.market import MarketPack, load_builtin
 from tft.replay import Action, Replay, apply_action, run_replay
-from tft.roster import active_traits
+from tft.roster import active_traits_for
 from tft.rules import DEFAULT_RULES, Rules
 
 BOT_NAMES = ("ana", "bo", "cy", "di", "ed", "fay", "gus", "hal")
@@ -39,18 +42,21 @@ ACTION_COMMANDS: dict[str, tuple[str, str]] = {
     "f": ("field", "f <unit>    move a bench unit to the board"),
     "u": ("bench", "u <unit>    move a board unit to the bench"),
     "a": ("augment", "a <n>       take augment <n> from the offer"),
+    "c": ("craft", "c <i> <j>   combine components <i> and <j> into an item"),
+    "i": ("equip", "i <u> <k>   give inventory item <k> to unit <u>"),
 }
 """Planning commands that become recorded actions."""
 
 LOCAL_COMMANDS: dict[str, str] = {
     "o": "o           scout the other boards",
+    "p": "p           preview your odds against each board on replayed market slices",
     "h": "h           show this help",
     "e": "e or Enter  end planning and fight",
     "q": "q           quit the match",
 }
 """Commands handled by the client itself."""
 
-MAX_COMMAND_WORDS = 2
+MAX_COMMAND_WORDS = 3
 
 
 @dataclass(frozen=True)
@@ -75,7 +81,7 @@ def render_help() -> str:
 
 
 def render_status(player: Player, round_id: RoundId) -> str:
-    """Return the seat's situation: health, economy, board, bench, traits, shop and offers.
+    """Return the seat's situation: health, economy, board, bench, traits, items, shop and offers.
 
     Raises:
         ValueError: If the shop has not been rolled for this round.
@@ -87,11 +93,13 @@ def render_status(player: Player, round_id: RoundId) -> str:
     units = player.units
     board = [f"[{i}] {u.describe()}" for i, u in enumerate(units) if u in player.board]
     bench = [f"[{i}] {u.describe()}" for i, u in enumerate(units) if u in player.bench]
-    traits = sorted(active_traits(u.champion for u in player.board).items())
+    traits = sorted(active_traits_for(player.board_entries()).items())
     shop = [
         f"[{i}] {c.name} {c.cost}g" if c is not None else f"[{i}] -"
         for i, c in enumerate(player.shop)
     ]
+    components = [f"[{i}] {c}" for i, c in enumerate(player.components)]
+    inventory = [f"[{i}] {item.name}" for i, item in enumerate(player.items)]
     lines = [
         f"== Round {round_id.label} ({kind}) ==",
         (
@@ -101,6 +109,7 @@ def render_status(player: Player, round_id: RoundId) -> str:
         f"Board ({len(player.board)}/{player.board_limit}): {', '.join(board) or 'empty'}",
         f"Bench: {', '.join(bench) or 'empty'}",
         f"Traits: {', '.join(f'{name} {tier}' for name, tier in traits) or 'none'}",
+        f"Components: {', '.join(components) or 'none'} | Items: {', '.join(inventory) or 'none'}",
         f"Shop: {', '.join(shop)}",
     ]
     if player.pending_augments:
@@ -126,16 +135,27 @@ def render_scout(views: Sequence[SeatView]) -> str:
     return "\n".join(lines)
 
 
+def render_odds(odds: Sequence[tuple[str, float]]) -> str:
+    """Return the preview odds, one opponent per entry."""
+    if not odds:
+        return "Nobody else is left to fight."
+    parts = ", ".join(f"{name} {probability:.0%}" for name, probability in odds)
+    return f"Odds of winning on replayed market slices: {parts}"
+
+
+def describe_result(result: CombatResult) -> str:
+    """Return one fight's outcome in a line."""
+    if result.is_draw:
+        return "a draw"
+    return f"{result.winner} beat {result.loser} with {result.survivors} unit(s) left"
+
+
 def render_report(report: RoundReport) -> str:
-    """Return the round's combat results and eliminations."""
+    """Return the round's market slice, combat results and eliminations."""
     lines = [f"-- Round {report.round_id.label} results --"]
-    for result in report.results:
-        if result.is_draw:
-            lines.append("a draw")
-        else:
-            lines.append(
-                f"{result.winner} beat {result.loser} with {result.survivors} unit(s) left"
-            )
+    if report.slice_label is not None:
+        lines.append(f"Market slice: {report.slice_label}")
+    lines += [describe_result(result) for result in report.results]
     if report.eliminated:
         lines.append(f"Eliminated: {', '.join(report.eliminated)}")
     return "\n".join(lines)
@@ -150,28 +170,40 @@ def render_placements(game: Game) -> str:
     return "\n".join(lines)
 
 
-def parse_command(line: str) -> tuple[str, int | None]:
-    """Split a command line into its key and optional number; an empty line ends planning.
+def parse_command(line: str) -> tuple[str, tuple[int, ...]]:
+    """Split a command line into its key and up to two numbers; an empty line ends planning.
 
     Raises:
-        ValueError: If there is more than one argument or it is not a whole number.
+        ValueError: If there are more than two arguments or one is not a whole number.
     """
     parts = line.split()
     if not parts:
-        return ("e", None)
-    key = parts[0].lower()
-    if len(parts) == 1:
-        return (key, None)
-    if len(parts) > MAX_COMMAND_WORDS or not parts[1].lstrip("-").isdigit():
-        msg = "a command takes at most one whole number"
+        return ("e", ())
+    key, rest = parts[0].lower(), parts[1:]
+    if len(parts) > MAX_COMMAND_WORDS or not all(part.lstrip("-").isdigit() for part in rest):
+        msg = "a command takes up to two whole numbers"
         raise ValueError(msg)
-    return (key, int(parts[1]))
+    return (key, tuple(int(part) for part in rest))
+
+
+def local_command(game: Game, player: Player, key: str) -> str | None:
+    """Return the text a client-side command prints, or ``None`` when ``key`` is not one."""
+    if key == "h":
+        return render_help()
+    if key == "o":
+        return render_scout(game.scout(player.name))
+    if key == "p":
+        try:
+            return render_odds(game.preview_odds(player.name))
+        except ValueError as error:
+            return f"cannot: {error}"
+    return None
 
 
 def handle_command(
     game: Game,
     player: Player,
-    command: tuple[str, int | None],
+    command: tuple[str, tuple[int, ...]],
     console: Console,
     actions: list[Action],
 ) -> str:
@@ -180,22 +212,20 @@ def handle_command(
     Raises:
         ValueError: If the command key is empty.
     """
-    key, arg = command
+    key, args = command
     if not key:
         msg = "empty command"
         raise ValueError(msg)
     if key in ("e", "q"):
         return "end" if key == "e" else "quit"
-    if key == "h":
-        console.write(render_help())
-        return "continue"
-    if key == "o":
-        console.write(render_scout(game.scout(player.name)))
+    text = local_command(game, player, key)
+    if text is not None:
+        console.write(text)
         return "continue"
     if key not in ACTION_COMMANDS:
         console.write(f"unknown command {key!r}; h shows the commands")
         return "continue"
-    action = Action(ACTION_COMMANDS[key][0], arg)
+    action = Action(ACTION_COMMANDS[key][0], args)
     try:
         message = apply_action(game, player, action)
     except ValueError as error:
@@ -242,6 +272,30 @@ def load_rules(path: str | None) -> Rules:
     return DEFAULT_RULES if path is None else Rules.from_toml(Path(path))
 
 
+def load_pack(path: str | None, *, market: bool) -> MarketPack | None:
+    """Return the market pack to fight on: none, the file at ``path``, or the built-in starter."""
+    if not market:
+        return None
+    return load_builtin() if path is None else MarketPack.load(Path(path))
+
+
+def replay_pack(replay: Replay, path: str | None) -> MarketPack | None:
+    """Return the pack a replay was recorded with: the file given, the built-in pack, or none.
+
+    Raises:
+        ValueError: If the replay names a pack that is neither built in nor given.
+    """
+    if replay.pack is None:
+        return None
+    if path is not None:
+        return MarketPack.load(Path(path))
+    try:
+        return load_builtin(replay.pack)
+    except ValueError as error:
+        msg = f"this replay was recorded with market pack {replay.pack!r}; pass it with --pack"
+        raise ValueError(msg) from error
+
+
 def save_replay(replay: Replay, path: str | None) -> Path:
     """Write the replay to ``path`` or to a timestamped file under ``replays/``; return the path."""
     if path is None:
@@ -264,11 +318,16 @@ def play(args: argparse.Namespace, console: Console) -> int:
         msg = f"bots must be 1 to {rules.lobby_size - 1}"
         raise ValueError(msg)
     names = [args.name, *BOT_NAMES[: args.bots]]
-    game = Game(names, seed=args.seed, rules=rules, policies={args.name: None})
+    pack = load_pack(args.pack, market=not args.no_market)
+    game = Game(names, seed=args.seed, rules=rules, policies={args.name: None}, pack=pack)
     seat = game.player(args.name)
-    replay = Replay(seed=args.seed, players=names, seat=args.name, rules_digest=rules.digest())
+    replay = Replay(
+        args.seed, names, args.name, rules.digest(), None if pack is None else pack.name
+    )
+    arena = f"market pack {pack.name}" if pack is not None else "power comparison"
     console.write(
-        f"Ticker Fight Tactics {__version__} | seed {args.seed} | {len(names)} seats | h for help"
+        f"Ticker Fight Tactics {__version__} | seed {args.seed} | {len(names)} seats | {arena}"
+        " | h for help"
     )
     for _ in range(len(game.rounds)):
         if game.finished or not seat.alive:
@@ -287,7 +346,8 @@ def play(args: argparse.Namespace, console: Console) -> int:
 def simulate(args: argparse.Namespace, console: Console) -> int:
     """Run a bots-only match and print the placements."""
     rules = load_rules(args.rules)
-    game = Game(BOT_NAMES[: args.players], seed=args.seed, rules=rules)
+    pack = load_pack(args.pack, market=not args.no_market)
+    game = Game(BOT_NAMES[: args.players], seed=args.seed, rules=rules, pack=pack)
     _ = game.run()
     console.write(render_placements(game))
     return 0
@@ -309,7 +369,7 @@ def replay_command(args: argparse.Namespace, console: Console) -> int:
     """Play a replay back and, with ``--verify``, compare it with the recorded result."""
     rules = load_rules(args.rules)
     replay = Replay.load(Path(args.file))
-    placements = run_replay(replay, rules)
+    placements = run_replay(replay, rules, replay_pack(replay, args.pack))
     console.write("Placements: " + ", ".join(placements))
     if not args.verify:
         return 0
@@ -328,6 +388,14 @@ def rules_command(args: argparse.Namespace, console: Console) -> int:
     return 0
 
 
+def add_market_options(parser: argparse.ArgumentParser) -> None:
+    """Add the ``--pack`` and ``--no-market`` options."""
+    parser.add_argument("--pack", help="market pack file (default: the built-in starter pack)")
+    parser.add_argument(
+        "--no-market", action="store_true", help="decide fights by power, not market replay"
+    )
+
+
 def add_play_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Add ``tft play``."""
     parser = commands.add_parser("play", help="play a match against bots")
@@ -335,6 +403,7 @@ def add_play_command(commands: argparse._SubParsersAction[argparse.ArgumentParse
     parser.add_argument("--name", default=DEFAULT_SEAT, help="your seat name")
     parser.add_argument("--bots", type=int, default=7, help="number of bots (default 7)")
     parser.add_argument("--rules", help="TOML rule file (default: built-in rules)")
+    add_market_options(parser)
     parser.add_argument("--replay", help="where to save the replay (default: replays/)")
     parser.set_defaults(func=play)
 
@@ -345,6 +414,7 @@ def add_sim_command(commands: argparse._SubParsersAction[argparse.ArgumentParser
     parser.add_argument("--seed", type=int, default=0, help="match seed (default 0)")
     parser.add_argument("--players", type=int, default=8, help="number of bots (default 8)")
     parser.add_argument("--rules", help="TOML rule file (default: built-in rules)")
+    add_market_options(parser)
     parser.set_defaults(func=simulate)
 
 
@@ -354,6 +424,7 @@ def add_replay_command(commands: argparse._SubParsersAction[argparse.ArgumentPar
     parser.add_argument("file", help="a replay JSON file")
     parser.add_argument("--verify", action="store_true", help="compare with the recorded result")
     parser.add_argument("--rules", help="TOML rule file the replay was recorded with")
+    parser.add_argument("--pack", help="market pack file the replay was recorded with")
     parser.set_defaults(func=replay_command)
 
 

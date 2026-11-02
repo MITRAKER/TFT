@@ -86,6 +86,20 @@ class Rules:
     market_boss_factor_tenths: int = 15
     market_survivors: int = 2
     econ_reserve: int = 10
+    slice_bars: int = 10
+    risk_penalty_tenths: int = 5
+    preview_samples: int = 200
+    components_per_pve_round: int = 1
+    max_items_per_unit: int = 3
+    trade_cost_bps: int = 5
+    momentum_lookback: int = 3
+    stop_percent: int = 2
+    target_percent: int = 4
+    reversion_threshold_tenths: int = 15
+    hedge_floor_percent: int = 2
+    hedge_premium_tenths: int = 5
+    whale_leverage_tenths: int = 20
+    arb_capture_percent: int = 20
     pool_sizes: dict[int, int] = field(default_factory=_default_pool_sizes)
     shop_odds: dict[int, tuple[int, ...]] = field(default_factory=_default_shop_odds)
     xp_to_next_level: dict[int, int] = field(default_factory=_default_xp)
@@ -124,11 +138,35 @@ class Rules:
                 "augment_choices",
                 "market_power_per_stage",
                 "market_boss_factor_tenths",
+                "slice_bars",
+                "preview_samples",
+                "max_items_per_unit",
+                "momentum_lookback",
+                "stop_percent",
+                "target_percent",
+                "whale_leverage_tenths",
             )
         }
         bad = sorted(name for name, value in positive.items() if value <= 0)
         if bad:
             msg = f"these rules must be positive: {', '.join(bad)}"
+            raise ValueError(msg)
+        signed = (
+            "risk_penalty_tenths",
+            "components_per_pve_round",
+            "trade_cost_bps",
+            "reversion_threshold_tenths",
+            "hedge_floor_percent",
+            "hedge_premium_tenths",
+            "arb_capture_percent",
+            "econ_reserve",
+        )
+        negative = sorted(name for name in signed if getattr(self, name) < 0)
+        if negative:
+            msg = f"these rules must not be negative: {', '.join(negative)}"
+            raise ValueError(msg)
+        if self.slice_bars < 2:  # noqa: PLR2004
+            msg = "slice_bars must be at least 2"
             raise ValueError(msg)
         if not 2 <= self.min_players <= self.lobby_size:  # noqa: PLR2004
             msg = "min_players must be at least 2 and at most lobby_size"

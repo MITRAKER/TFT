@@ -58,10 +58,11 @@ def short_rules(tmp_path: Path) -> Path:
 
 
 def test_parse_command() -> None:
-    assert parse_command("") == ("e", None)
-    assert parse_command("B 2") == ("b", 2)
-    assert parse_command("o") == ("o", None)
-    for bad in ("b x", "b 1 2"):
+    assert parse_command("") == ("e", ())
+    assert parse_command("B 2") == ("b", (2,))
+    assert parse_command("o") == ("o", ())
+    assert parse_command("i 0 1") == ("i", (0, 1))
+    for bad in ("b x", "b 1 2 3"):
         with pytest.raises(ValueError, match="whole number"):
             parse_command(bad)
 
@@ -69,7 +70,7 @@ def test_parse_command() -> None:
 def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     rules_path = short_rules(tmp_path)
     replay_path = tmp_path / "match.json"
-    script = ["h", "o", "b 0", "f 0", "zz", "b 99", "b x", "", "x", "", "e"]
+    script = ["h", "o", "b 0", "f 0", "zz", "b 99", "b x", "p", "", "x", "c 0 1", "i 0 0", "", "e"]
     fake = FakeConsole(script)
     status = main(
         [
@@ -90,6 +91,10 @@ def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     assert "unknown command 'zz'" in fake.text
     assert "cannot: shop slot 99" in fake.text
     assert "cannot: a command takes" in fake.text
+    assert "Odds of winning" in fake.text
+    assert "Market slice:" in fake.text
+    assert "crafted " in fake.text
+    assert "now holds" in fake.text
     assert "Final placements" in fake.text
     assert replay_path.exists()
     check = FakeConsole([])
@@ -118,7 +123,9 @@ def test_play_continues_with_bots_after_the_seat_is_eliminated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class SeatLoses:
-        def resolve(self, home: Player, away: Player, _rng: object, /) -> CombatResult:
+        def resolve(
+            self, home: Player, away: Player, _rng: object, _ctx: object, /
+        ) -> CombatResult:
             loser, winner = (home, away) if home.name == "you" else (away, home)
             return CombatResult(winner.name, loser.name, 9)
 
@@ -230,7 +237,7 @@ def test_rendering_edge_cases() -> None:
         render_status(player, RoundId.make(1, 1))
     game = Game(["you", "ana"], policies={"you": None})
     with pytest.raises(ValueError, match="empty command"):
-        handle_command(game, game.player("you"), ("", None), FakeConsole([]).console, [])
+        handle_command(game, game.player("you"), ("", ()), FakeConsole([]).console, [])
     assert standard_console().read is input
 
 
@@ -249,3 +256,82 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as exit_info:
         runpy.run_module("tft", run_name="__main__", alter_sys=True)
     assert exit_info.value.code == 0
+
+
+def test_no_market_and_pack_options(tmp_path: Path) -> None:
+    rules_path = short_rules(tmp_path)
+    fake = FakeConsole(["p", "e", "e", "e"])
+    argv = [
+        "play",
+        "--bots",
+        "1",
+        "--no-market",
+        "--rules",
+        str(rules_path),
+        "--replay",
+        str(tmp_path / "r.json"),
+    ]
+    assert main(argv, fake.console) == 0
+    assert "power comparison" in fake.text
+    assert "cannot: the preview needs a market pack" in fake.text
+    sim = FakeConsole([])
+    assert (
+        main(["sim", "--players", "3", "--no-market", "--rules", str(rules_path)], sim.console) == 0
+    )
+    from tft.market import load_builtin  # noqa: PLC0415
+
+    pack_path = tmp_path / "pack.json"
+    load_builtin().save(pack_path)
+    custom = FakeConsole(["e"] * 4)
+    argv = [
+        "play",
+        "--bots",
+        "1",
+        "--pack",
+        str(pack_path),
+        "--rules",
+        str(rules_path),
+        "--replay",
+        str(tmp_path / "m.json"),
+    ]
+    assert main(argv, custom.console) == 0
+    assert "market pack starter" in custom.text
+    check = FakeConsole([])
+    assert (
+        main(
+            ["replay", str(tmp_path / "m.json"), "--verify", "--rules", str(rules_path)],
+            check.console,
+        )
+        == 0
+    )
+    assert "verified" in check.text
+    with_pack = FakeConsole([])
+    argv = [
+        "replay",
+        str(tmp_path / "m.json"),
+        "--verify",
+        "--rules",
+        str(rules_path),
+        "--pack",
+        str(pack_path),
+    ]
+    assert main(argv, with_pack.console) == 0
+
+
+def test_replay_with_an_unknown_pack_name_needs_the_file(tmp_path: Path) -> None:
+    rules_path = short_rules(tmp_path)
+    replay_path = tmp_path / "r.json"
+    fake = FakeConsole(["e"] * 4)
+    assert (
+        main(
+            ["play", "--bots", "1", "--rules", str(rules_path), "--replay", str(replay_path)],
+            fake.console,
+        )
+        == 0
+    )
+    recorded = Replay.load(replay_path)
+    recorded.pack = "elsewhere"
+    recorded.save(replay_path)
+    missing = FakeConsole([])
+    assert main(["replay", str(replay_path), "--rules", str(rules_path)], missing.console) == 2
+    assert "pass it with --pack" in missing.text
