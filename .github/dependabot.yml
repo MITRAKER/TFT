@@ -1,0 +1,35 @@
+# Dependabot version updates. Security updates are switched on in the repository
+# settings (Code security) and do not depend on this file.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels: [dependencies, github-actions]
+    commit-message:
+      prefix: ci
+      include: scope
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    groups:
+      python-tooling:
+        patterns: ["*"]
+    labels: [dependencies, python]
+    commit-message:
+      prefix: build
+      include: scope
+    open-pull-requests-limit: 10
