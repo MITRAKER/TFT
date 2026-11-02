@@ -1,0 +1,166 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tft"
+version = "0.1.0"
+description = "TFT: the product package, shipped with CI/CD, CodeQL, Dependabot, NASA/JPL Power of Ten checks and tagged stable releases."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Mitra Kermanian" }]
+keywords = ["tft"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.14",
+  "mypy>=1.14",
+  "pytest>=8.3",
+  "pytest-cov>=6",
+  "build>=1.2",
+  "twine>=6",
+  "pip-audit>=2.8",
+  "pre-commit>=4",
+]
+
+[project.urls]
+Homepage = "https://github.com/MITRAKER/TFT"
+Repository = "https://github.com/MITRAKER/TFT"
+Issues = "https://github.com/MITRAKER/TFT/issues"
+Changelog = "https://github.com/MITRAKER/TFT/blob/main/CHANGELOG.md"
+Security = "https://github.com/MITRAKER/TFT/security/policy"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tft = ["py.typed"]
+
+# ---------------------------------------------------------------------------
+# Code standards: formatting, lint, complexity, security and docstring rules
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests", "tools"]
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "E", "W",    # pycodestyle
+  "F",         # pyflakes
+  "I",         # isort
+  "N",         # pep8-naming
+  "D",         # pydocstyle: every public module, class and function is documented
+  "UP",        # pyupgrade
+  "ANN",       # every function is fully type-annotated
+  "S",         # bandit security rules
+  "B",         # bugbear
+  "A",         # no shadowing of builtins
+  "C4",        # comprehensions
+  "C90",       # mccabe cyclomatic complexity
+  "T20",       # no stray print statements
+  "SIM",       # simplify
+  "ARG",       # unused arguments
+  "PTH",       # pathlib over os.path
+  "PL",        # pylint: complexity, magic values, design limits
+  "PT",        # pytest style
+  "RET",       # return consistency
+  "RUF",       # ruff-specific rules
+  "ERA",       # no commented-out code
+  "ISC",       # implicit string concatenation
+  "PIE",       # misc lints
+  "PERF",      # performance anti-patterns
+  "TRY",       # exception handling
+]
+ignore = [
+  "ISC001",    # conflicts with the formatter
+  "TRY003",    # long messages in exceptions are fine
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+  "S101",      # assert is the point of a test
+  "D",         # tests are documented by their names
+  "ANN",       # fixtures and parametrised arguments
+  "PLR2004",   # literal expected values
+  "ARG",       # fixtures that are used for their effect
+]
+"tools/**" = [
+  "T201",      # command-line tools print
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.lint.isort]
+known-first-party = ["tft"]
+
+# ---------------------------------------------------------------------------
+# Static typing
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests", "tools"]
+mypy_path = ["src", "tools"]
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+
+# ---------------------------------------------------------------------------
+# Tests and coverage
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["tools"]
+addopts = "-ra --strict-config --strict-markers --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=95"
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["tft"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# ---------------------------------------------------------------------------
+# NASA/JPL Power of Ten checker (tools/jpl_check.py)
+# ---------------------------------------------------------------------------
+[tool.jpl_check]
+paths = ["src", "tools"]
+exclude = ["tests"]
+max_function_lines = 60
+min_statements_for_assertions = 10
+min_assertions = 1
