@@ -340,8 +340,8 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 
 | Milestone | Scope | Exit criteria |
 | --- | --- | --- |
-| **M0 Mock** (this commit) | Roster v0, environment mock (rounds, shop, pool, economy, star-ups, levels, augments, carousel, PvE, eliminations), `PowerResolver`, greedy bot, PRD | Deterministic eight-bot game runs to a result under the quality gates; 95 % branch coverage |
-| **M1 Playable CLI** | Human actions through the API, scouting observation, replay file, rules in a config file | A person plays a full match against seven bots in a terminal; replay verifies |
+| **M0 Mock** (released as v0.1.0) | Roster v0, environment mock (rounds, shop, pool, economy, star-ups, levels, augments, carousel, PvE, eliminations), `PowerResolver`, greedy bot, PRD | Deterministic eight-bot game runs to a result under the quality gates; 95 % branch coverage |
+| **M1 Playable CLI** (released as v0.2.0) | Human actions through the API, scouting observation, replay file, rules in a config file | A person plays a full match against seven bots in a terminal; replay verifies |
 | **M2 Market replay** | Market packs, `MarketResolver`, items as stops and targets, positioning grid, preview odds | Combat decided by real historical slices; fixture-based tests; balance pass on the roster |
 | **M3 Web client** | Board UI, lobby, spectating, round summaries that explain the trading lesson | Playtest with ten external players; median round under 60 seconds |
 | **M4 Multiplayer and ladder** | Authoritative server, matchmaking, ranked seasons tied to market packs | Public beta |

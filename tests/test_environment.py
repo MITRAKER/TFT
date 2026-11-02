@@ -31,11 +31,13 @@ from tft.environment import (
     stage_damage,
 )
 from tft.roster import CHAMPIONS, champion, champions_of_cost
+from tft.rules import Rules
 
 PIP = champion("Pip Squeak")
 DRONE = champion("Index Drone")
 GAZELLE = champion("Gap Gazelle")
 BULL = champion("Breakout Bull")
+NAMES = ["ana", "bo", "cy", "di", "ed", "fay", "gus", "hal"]
 
 
 def stocked_player(gold: int = 50, level: int = 1) -> Player:
@@ -52,28 +54,28 @@ def test_round_sequence_shape_and_labels() -> None:
     assert len(rounds) == MAX_ROUNDS == 45
     assert [round_id.label for round_id in rounds[:5]] == ["1-1", "1-2", "1-3", "2-1", "2-2"]
     assert rounds[-1].label == "7-7"
-    assert round_sequence(5)[-1].label == "2-2"
+    short = round_sequence(Rules(stages=2))
+    assert len(short) == 10
+    assert short[-1].label == "2-7"
 
 
 def test_round_flags() -> None:
-    assert RoundId(1, 2).is_pve
-    assert RoundId(3, 7).is_pve
-    assert not RoundId(3, 6).is_pve
-    assert RoundId(2, 4).is_carousel
-    assert not RoundId(1, 3).is_carousel
-    assert all(RoundId(stage, number).is_augment for stage, number in ((2, 1), (3, 2), (4, 2)))
-    assert not RoundId(2, 2).is_augment
-
-
-def test_round_sequence_rejects_a_non_positive_length() -> None:
-    with pytest.raises(ValueError, match="positive"):
-        round_sequence(0)
+    assert RoundId.make(1, 2).is_pve
+    assert RoundId.make(3, 7).is_pve
+    assert not RoundId.make(3, 6).is_pve
+    assert RoundId.make(2, 4).is_carousel
+    assert not RoundId.make(1, 3).is_carousel
+    assert all(RoundId.make(s, n).is_augment for s, n in ((2, 1), (3, 2), (4, 2)))
+    assert not RoundId.make(2, 2).is_augment
+    assert RoundId.make(2, 4, Rules(carousel_round=5)).is_carousel is False
 
 
 def test_stage_damage_and_market_power_grow_with_the_stage() -> None:
     assert [stage_damage(stage) for stage in (1, 2, 7, 9)] == [0, 2, 17, 17]
-    assert market_power(RoundId(1, 1)) < market_power(RoundId(2, 1)) < market_power(RoundId(3, 1))
-    assert market_power(RoundId(3, 7)) > market_power(RoundId(3, 6))
+    assert stage_damage(3, Rules(stage_base_damage={1: 1, 4: 9})) == 1
+    one, two, three = (market_power(RoundId.make(s, 1)) for s in (1, 2, 3))
+    assert one < two < three
+    assert market_power(RoundId.make(3, 7)) > market_power(RoundId.make(3, 6))
 
 
 # Shop and pool --------------------------------------------------------------
@@ -131,9 +133,11 @@ def test_sell_value_rejects_bad_stars() -> None:
         sell_value(1, 4)
 
 
-def test_unit_power_and_copies_by_star() -> None:
-    assert [Unit(PIP, star).power for star in (1, 2, 3)] == [10, 18, 32]
-    assert [Unit(PIP, star).copies for star in (1, 2, 3)] == [1, 3, 9]
+def test_unit_power_copies_and_description() -> None:
+    assert [Unit(PIP, star).power() for star in (1, 2, 3)] == [10, 18, 32]
+    assert [Unit(PIP, star).copies() for star in (1, 2, 3)] == [1, 3, 9]
+    assert Unit(PIP, 2).describe() == "Pip Squeak 2*"
+    assert Unit(PIP) != Unit(PIP)
 
 
 # Player ---------------------------------------------------------------------
@@ -167,8 +171,7 @@ def test_buying_the_third_copy_merges_even_on_a_full_bench() -> None:
     player.bench = [Unit(unit) for unit in CHAMPIONS[1 : BENCH_SIZE - 1]] + [Unit(PIP), Unit(PIP)]
     assert len(player.bench) == BENCH_SIZE
     player.buy(0, pool)
-    stars = [unit.star for unit in player.bench if unit.champion is PIP]
-    assert stars == [2]
+    assert [unit.star for unit in player.bench if unit.champion is PIP] == [2]
     assert len(player.bench) == BENCH_SIZE - 1
 
 
@@ -224,7 +227,7 @@ def test_reroll_costs_gold_and_rolls_a_shop() -> None:
         player.reroll(pool, rng)
 
 
-def test_field_unit_respects_the_board_limit() -> None:
+def test_field_and_bench_units_respect_the_limits() -> None:
     player = Player("tester")
     first, second = Unit(PIP), Unit(DRONE)
     player.bench = [first, second]
@@ -234,6 +237,29 @@ def test_field_unit_respects_the_board_limit() -> None:
         player.field_unit(second)
     with pytest.raises(ValueError, match="not on"):
         player.field_unit(first)
+    player.bench_unit(first)
+    assert player.board == []
+    assert player.bench == [second, first]
+    with pytest.raises(ValueError, match="not on"):
+        player.bench_unit(first)
+    player.board = [first]
+    player.bench = [Unit(unit) for unit in CHAMPIONS[:BENCH_SIZE]]
+    with pytest.raises(ValueError, match="bench is full"):
+        player.bench_unit(first)
+
+
+def test_choose_augment_applies_the_offer() -> None:
+    player = Player("tester")
+    with pytest.raises(ValueError, match="no augment"):
+        player.choose_augment(0)
+    player.pending_augments = list(AUGMENTS[:3])
+    with pytest.raises(ValueError, match="0 to 2"):
+        player.choose_augment(3)
+    taken = player.choose_augment(0)
+    assert taken is AUGMENTS[0]
+    assert player.gold == AUGMENTS[0].gold
+    assert player.augments == [AUGMENTS[0]]
+    assert player.pending_augments == []
 
 
 def test_team_power_applies_trait_and_augment_bonuses() -> None:
@@ -277,12 +303,11 @@ def test_greedy_policy_buys_fields_and_levels() -> None:
     player, pool = stocked_player(gold=30, level=2), Pool()
     greedy_policy(player, pool, Random(0))
     assert len(player.board) == 2
-    assert player.board[0].power >= player.board[1].power
+    assert player.board[0].power() >= player.board[1].power()
     assert player.gold < 30
     assert player.level >= 2
-    unrolled = Player("tester")
     with pytest.raises(ValueError, match="not been rolled"):
-        greedy_policy(unrolled, pool, Random(0))
+        greedy_policy(Player("tester"), pool, Random(0))
 
 
 def test_greedy_policy_buys_experience_only_with_a_reserve() -> None:
@@ -303,8 +328,7 @@ def test_power_resolver_outcomes() -> None:
     result = PowerResolver().resolve(strong, weak, Random(0))
     assert (result.winner, result.loser) == ("strong", "weak")
     assert 1 <= result.survivors <= 2
-    mirrored = PowerResolver().resolve(weak, strong, Random(0))
-    assert mirrored.winner == "strong"
+    assert PowerResolver().resolve(weak, strong, Random(0)).winner == "strong"
     assert PowerResolver().resolve(weak, Player("empty"), Random(0)).winner == "weak"
     assert PowerResolver().resolve(Player("a"), Player("b"), Random(0)).is_draw
 
@@ -312,13 +336,12 @@ def test_power_resolver_outcomes() -> None:
 # Game -----------------------------------------------------------------------
 
 
-NAMES = ["ana", "bo", "cy", "di", "ed", "fay", "gus", "hal"]
-
-
-def test_game_rejects_bad_lobbies() -> None:
+def test_game_rejects_bad_lobbies_and_policies() -> None:
     for names in (["solo"], [*NAMES, "ivy"], ["ana", "ana"]):
         with pytest.raises(ValueError, match="distinct players"):
             Game(names)
+    with pytest.raises(ValueError, match="not in the lobby"):
+        Game(["ana", "bo"], policies={"zed": None})
 
 
 def test_a_full_game_is_deterministic_and_ends() -> None:
@@ -336,6 +359,62 @@ def test_a_full_game_is_deterministic_and_ends() -> None:
 def test_different_seeds_give_different_games() -> None:
     outcomes = {tuple(Game(NAMES, seed=seed).run()) for seed in range(4)}
     assert len(outcomes) > 1
+
+
+def test_custom_rules_shape_the_match() -> None:
+    rules = Rules(stages=2, lobby_size=4, starting_health=30)
+    game = Game(NAMES[:4], seed=1, rules=rules)
+    assert game.players[0].health == 30
+    assert len(game.rounds) == 10
+    placements = game.run()
+    assert sorted(placements) == sorted(NAMES[:4])
+    assert game.round_index <= 10
+
+
+def test_round_phases_and_an_outside_seat() -> None:
+    game = Game(["you", "ana", "bo"], seed=2, policies={"you": None})
+    with pytest.raises(RuntimeError, match="start a round first"):
+        game.finish_round()
+    round_id = game.start_round()
+    assert round_id.label == "1-1"
+    assert not game.finished
+    with pytest.raises(RuntimeError, match="finish the current round"):
+        game.start_round()
+    you = game.player("you")
+    assert len(you.shop) == SHOP_SIZE
+    assert you.board == []
+    assert len(game.player("ana").board) >= 1
+    you.buy(0, game.pool)
+    you.field_unit(you.bench[0])
+    report = game.finish_round()
+    assert report.round_id == round_id
+    assert game.round_index == 1
+
+
+def test_augment_rounds_offer_choices_to_outside_seats() -> None:
+    game = Game(["you", "ana"], seed=4, policies={"you": None})
+    you, ana = game.players
+    game.prepare(you, RoundId.make(2, 1))
+    game.prepare(ana, RoundId.make(2, 1))
+    assert len(you.pending_augments) == 3
+    assert you.augments == []
+    assert len(ana.augments) == 1
+    game.phase = env.PHASE_PLANNING
+    game.current = RoundId.make(2, 1)
+    _ = game.finish_round()
+    assert len(you.augments) == 1
+    assert you.pending_augments == []
+
+
+def test_scout_shows_the_other_boards() -> None:
+    game = Game(["you", "ana", "bo"], seed=2, policies={"you": None})
+    _ = game.start_round()
+    views = game.scout("you")
+    assert [view.name for view in views] == ["ana", "bo"]
+    assert views[0].units
+    assert views[0].health == STARTING_HEALTH
+    with pytest.raises(KeyError, match="no player"):
+        game.scout("zed")
 
 
 def test_step_reports_eliminations_in_order() -> None:
@@ -364,52 +443,49 @@ def test_duel_rejects_a_half_result() -> None:
 
     game = Game(["ana", "bo"], seed=1, resolver=Broken())
     with pytest.raises(ValueError, match="winner and a loser"):
-        game.duel(game.players[0], game.players[1], RoundId(2, 1))
+        game.duel(game.players[0], game.players[1], RoundId.make(2, 1))
 
 
 def test_pvp_round_with_an_odd_lobby_sends_one_player_to_the_market() -> None:
     game = Game(["ana", "bo", "cy"], seed=3)
-    results = game.fight(RoundId(2, 2))
+    results = game.fight(RoundId.make(2, 2))
     assert len(results) == 2
     assert any(env.MARKET in (result.winner, result.loser) for result in results)
 
 
-def test_augment_and_carousel_rounds_grant_their_rewards() -> None:
+def test_carousel_grants_a_unit_when_there_is_room() -> None:
     game = Game(["ana", "bo"], seed=5)
     player = game.players[0]
-    game.prepare(player, RoundId(2, 1))
-    assert len(player.augments) == 1
-    bench_before = len(game.players[1].bench)
-    game.prepare(game.players[1], RoundId(2, 4))
-    assert len(game.players[1].bench) >= bench_before
+    game.prepare(player, RoundId.make(2, 4))
+    assert len(player.units) >= 1
     full = game.players[1]
     full.bench = [Unit(unit) for unit in CHAMPIONS[:BENCH_SIZE]]
-    game.carousel(full, RoundId(3, 4))
+    game.carousel(full, RoundId.make(3, 4))
     assert len(full.bench) == BENCH_SIZE
     with pytest.raises(ValueError, match="not a carousel"):
-        game.carousel(full, RoundId(3, 5))
+        game.carousel(full, RoundId.make(3, 5))
     game.players[0].health = 0
     with pytest.raises(ValueError, match="eliminated"):
-        game.prepare(game.players[0], RoundId(3, 5))
+        game.prepare(game.players[0], RoundId.make(3, 5))
 
 
 def test_carousel_skips_an_exhausted_cost_tier() -> None:
     game = Game(["ana", "bo"], seed=5, champions=[PIP, BULL])
     game.pool.take("Pip Squeak", POOL_SIZES[1])
-    game.carousel(game.players[0], RoundId(2, 4))
+    game.carousel(game.players[0], RoundId.make(2, 4))
     assert game.players[0].bench == []
 
 
 def test_market_fight_outcomes() -> None:
     game = Game(["ana", "bo"], seed=0)
     weak = game.players[0]
-    result = game.fight_market(weak, RoundId(3, 1))
+    result = game.fight_market(weak, RoundId.make(3, 1))
     assert result.winner == env.MARKET
     assert weak.health == STARTING_HEALTH - stage_damage(3) - env.MARKET_SURVIVORS
     strong = game.players[1]
     strong.level = 5
     strong.board = [Unit(BULL, star=3) for _ in range(5)]
-    assert game.fight_market(strong, RoundId(2, 1)).winner == "bo"
+    assert game.fight_market(strong, RoundId.make(2, 1)).winner == "bo"
 
 
 def test_player_lookup() -> None:

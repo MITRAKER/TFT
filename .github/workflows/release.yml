@@ -5,6 +5,12 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0; the tag v0.2.0 is created on the chosen branch"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,7 +28,10 @@ jobs:
     name: Verify the tag and run the full gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write # only used to create the tag on manual runs
     outputs:
+      tag: ${{ steps.name.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
       prerelease: ${{ steps.tag.outputs.prerelease }}
     steps:
@@ -45,10 +54,24 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . -r requirements-dev.txt
 
+      - name: Resolve the tag name
+        id: name
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            tag="v${INPUT_VERSION#v}"
+          else
+            tag="$REF_NAME"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Check that the tag matches pyproject.toml
         id: tag
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.name.outputs.tag }}
         run: python tools/release_version.py --tag "$TAG" --github-output "$GITHUB_OUTPUT"
 
       - name: Formatting and lint
@@ -64,6 +87,17 @@ jobs:
 
       - name: Tests
         run: python -m pytest
+
+      - name: Create the tag (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.name.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$TAG" --message "Release $TAG" "$GITHUB_SHA"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/$TAG"
 
   build:
     name: Build and attest
@@ -136,7 +170,7 @@ jobs:
       - name: Create the release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.verify.outputs.tag }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
         run: |
           flags=(--title "$TAG" --generate-notes --verify-tag)
@@ -150,7 +184,7 @@ jobs:
       - name: Move the stable tag to this release
         if: needs.verify.outputs.prerelease == 'false'
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
