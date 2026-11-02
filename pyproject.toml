@@ -95,10 +95,12 @@ ignore = [
   "ISC001",    # conflicts with the formatter
   "TRY003",    # long messages in exceptions are fine
 ]
+external = ["JPL"]  # `# noqa: JPLnn` belongs to tools/jpl_check.py
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [
   "S101",      # assert is the point of a test
+  "S311",      # seeded random.Random is the point of a deterministic engine
   "D",         # tests are documented by their names
   "ANN",       # fixtures and parametrised arguments
   "PLR2004",   # literal expected values

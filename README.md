@@ -9,15 +9,30 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 
-The product code lives in [`src/tft`](src/tft). The repository ships with the
-quality and security pipeline described below, so every change is tested,
-linted, type-checked, scanned and held to the NASA/JPL Power of Ten rules before
-it reaches `main`, and every release is a tagged, checksummed build with signed
-provenance.
+**Ticker Fight Tactics** (working title) is a strategy game in the auto-battler
+genre in which the pieces are trading strategies, the gold is capital, and the
+battles are real market sessions replayed from history. The product
+requirements are in [docs/PRD.md](docs/PRD.md).
 
-`tft.economy` is a small example module that comes with the scaffold so the
-pipeline has real code to run against. Replace it with, or grow it into, the
-product.
+The engine lives in [`src/tft`](src/tft):
+
+| Module | What it holds |
+| --- | --- |
+| `tft.economy` | Income, interest and streak rules |
+| `tft.roster` | The mock roster: six origins, eight classes, twenty-five original trader-champions |
+| `tft.environment` | The headless, deterministic game environment: rounds and stages, shop odds, the shared pool, star-ups, levels, augments, carousel, PvE rounds, damage and eliminations, with a pluggable `CombatResolver` and a greedy bot |
+
+The repository ships with the quality and security pipeline described below,
+so every change is tested, linted, type-checked, scanned and held to the
+NASA/JPL Power of Ten rules before it reaches `main`, and every release is a
+tagged, checksummed build with signed provenance.
+
+```python
+from tft import Game
+
+game = Game(["ana", "bo", "cy", "di", "ed", "fay", "gus", "hal"], seed=42)
+print(game.run())  # placements, first to last; the same seed always gives the same match
+```
 
 ## Install
 
@@ -94,8 +109,8 @@ command with `tools/configure_repository.py`.
 
 ```text
 .github/            workflows, Dependabot, CODEOWNERS, issue and PR templates
-docs/               standards, release process, repository settings
-src/tft/            the package (product code)
+docs/               PRD, standards, release process, repository settings
+src/tft/            the engine: economy, roster, environment
 tests/              pytest suite, 95 % branch coverage required
 tools/jpl_check.py  NASA/JPL Power of Ten checker
 tools/release_version.py  tag-to-version check used by the Release workflow
