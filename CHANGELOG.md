@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-02
+
+First tagged release: the repository pipeline and the M0 mock of the game.
+
 ### Added
 
 - `docs/PRD.md`: the product requirements document for Ticker Fight Tactics, a trading auto-battler.
@@ -18,4 +22,5 @@ All notable changes to this project are documented here. The format follows
 - `tools/release_version.py`: tag-to-version check used by the Release workflow.
 - `tools/configure_repository.py`: applies the GitHub-side settings (Dependabot alerts and security updates, secret scanning, private vulnerability reporting, the `main` and release-tag rulesets) through the GitHub CLI.
 
-[Unreleased]: https://github.com/MITRAKER/TFT/commits/main
+[Unreleased]: https://github.com/MITRAKER/TFT/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/MITRAKER/TFT/releases/tag/v0.1.0
