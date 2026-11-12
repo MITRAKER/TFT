@@ -246,6 +246,19 @@ STRATEGIES: Mapping[str, Strategy] = {
 """The strategy each class trades."""
 
 
+DESCRIPTIONS: Mapping[str, str] = {
+    "Swing": "Buys the first open and holds to the last close.",
+    "Momentum": "Waits for a close above the opening range, then rides it with a stop and a target.",
+    "Contrarian": "Buys a close that drops below the running average and aims back at it.",
+    "Scalper": "Trades every bar in the direction of the last one and pays costs each time.",
+    "Hedger": "Holds like a Swing, with a floor under the loss that costs a premium.",
+    "Arbitrageur": "Captures a fixed share of every bar's move, up or down, minus costs.",
+    "Quant": "Half Momentum, half Contrarian.",
+    "Whale": "Holds like a Swing with leverage: bigger wins, bigger drawdowns.",
+}
+"""What each class's strategy does, in one line, for clients and documentation."""
+
+
 def strategy_for(role: str) -> Strategy:
     """Return the strategy of a class.
 

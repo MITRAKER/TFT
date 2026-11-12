@@ -842,12 +842,17 @@ class Game:
         self.round_index += 1
         self.current = round_id
         self.phase = PHASE_PLANNING
-        self.slice = (
-            self.pack.deal(self.rng, self.rules.slice_bars) if self.pack is not None else None
-        )
+        self.slice = self.deal_slice()
         for player in self.alive:
             self.prepare(player, round_id)
         return round_id
+
+    def deal_slice(self) -> Slice | None:
+        """Deal the round's market slice, on other days than the previous round's."""
+        if self.pack is None:
+            return None
+        previous = self.slice.start if self.slice is not None else None
+        return self.pack.deal(self.rng, self.rules.slice_bars, previous)
 
     def finish_round(self) -> RoundReport:
         """Close the open round: settle augments, fight, apply damage, eliminate.

@@ -40,6 +40,7 @@ INTEREST_STEP = 10
 NEARLY = 3
 IDLE_COMPONENTS = 2
 LONG_STREAK = 3
+ONE_POSITION_MARKS = 2
 
 WON, LOST, DRAWN, NO_FIGHT = "won", "lost", "draw", "none"
 
@@ -70,6 +71,11 @@ class UnitLine:
     def mark(self, label: str) -> int | None:
         """Return the bar where the strategy did ``label``, if it did."""
         return next((bar for bar, what in self.marks if what == label), None)
+
+    @property
+    def one_position(self) -> bool:
+        """Return whether the line is a single entry and exit whose result is the unit's result."""
+        return self.role != "Quant" and len(self.marks) == ONE_POSITION_MARKS
 
     @property
     def entry(self) -> int:
@@ -123,7 +129,7 @@ def empty_slots(facts: Facts) -> str | None:
 def stopped_out(facts: Facts) -> str | None:
     """A stop that fired: did it save money, or cost the rebound?"""
     for line in facts.units:
-        if line.mark("stop") is None:
+        if line.mark("stop") is None or not line.one_position:
             continue
         held = line.held_from(line.entry)
         if held < line.pnl - MEANINGFUL_GAP:
@@ -143,7 +149,7 @@ def stopped_out(facts: Facts) -> str | None:
 def took_profit(facts: Facts) -> str | None:
     """A target that fired: did it bank the gain, or cap it?"""
     for line in facts.units:
-        if line.mark("target") is None:
+        if line.mark("target") is None or not line.one_position:
             continue
         held = line.held_from(line.entry)
         if held > line.pnl + MEANINGFUL_GAP:
