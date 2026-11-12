@@ -82,10 +82,13 @@ class Rules:
     boss_round: int = 7
     augment_rounds: tuple[tuple[int, int], ...] = ((2, 1), (3, 2), (4, 2))
     augment_choices: int = 3
-    market_power_per_stage: int = 6
-    market_boss_factor_tenths: int = 15
-    market_survivors: int = 2
     econ_reserve: int = 10
+    board_rows: int = 4
+    board_cols: int = 7
+    row_size_percent: tuple[int, ...] = (80, 90, 100, 120)
+    row_shield_percent: tuple[int, ...] = (30, 15, 0, 0)
+    cover_shield_percent: int = 25
+    exposed_penalty_percent: int = 25
     slice_bars: int = 10
     risk_penalty_tenths: int = 5
     preview_samples: int = 200
@@ -115,6 +118,7 @@ class Rules:
         """
         self._check_counts()
         self._check_tables()
+        self._check_board()
 
     def _check_counts(self) -> None:
         """Validate the scalar settings."""
@@ -136,8 +140,8 @@ class Rules:
                 "rounds_per_stage",
                 "stages",
                 "augment_choices",
-                "market_power_per_stage",
-                "market_boss_factor_tenths",
+                "board_rows",
+                "board_cols",
                 "slice_bars",
                 "preview_samples",
                 "max_items_per_unit",
@@ -160,6 +164,8 @@ class Rules:
             "hedge_premium_tenths",
             "arb_capture_percent",
             "econ_reserve",
+            "cover_shield_percent",
+            "exposed_penalty_percent",
         )
         negative = sorted(name for name in signed if getattr(self, name) < 0)
         if negative:
@@ -198,6 +204,19 @@ class Rules:
             msg = "stage_base_damage needs at least stage 1"
             raise ValueError(msg)
 
+    def _check_board(self) -> None:
+        """Validate the board grid and its per-row settings."""
+        rows = (len(self.row_size_percent), len(self.row_shield_percent))
+        if rows != (self.board_rows, self.board_rows):
+            msg = "row_size_percent and row_shield_percent need one entry per board row"
+            raise ValueError(msg)
+        if min(self.row_size_percent) <= 0:
+            msg = "row_size_percent entries must be positive"
+            raise ValueError(msg)
+        if self.board_rows * self.board_cols < self.max_level:
+            msg = "the board needs at least max_level cells"
+            raise ValueError(msg)
+
     @property
     def max_rounds(self) -> int:
         """Return the number of rounds in a full match."""
@@ -223,8 +242,8 @@ class Rules:
                 values[key] = {
                     int(k): tuple(v) if isinstance(v, list) else v for k, v in raw.items()
                 }
-            elif key == "augment_rounds" and isinstance(raw, list):
-                values[key] = tuple(tuple(pair) for pair in raw)
+            elif isinstance(raw, list):
+                values[key] = tuple(tuple(item) if isinstance(item, list) else item for item in raw)
             else:
                 values[key] = raw
         return cls(**values)

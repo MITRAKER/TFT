@@ -32,9 +32,11 @@ from tft.combat import (
     CombatResult,
     MarketResolver,
     PowerResolver,
-    preview,
+    preview_field,
 )
 from tft.economy import round_income
+from tft.errors import Refusal
+from tft.formation import Cell, check_cell, default_cell
 from tft.items import Component, Effect, Item, combined_effect, craft
 from tft.market import MarketPack, Slice
 from tft.roster import CHAMPIONS, Champion, TraitEntry, active_traits_for, synergy_bonus_for
@@ -162,6 +164,7 @@ class Unit:
     champion: Champion
     star: int = 1
     items: list[Item] = field(default_factory=list)
+    position: Cell | None = None
 
     def power(self, rules: Rules = DEFAULT_RULES) -> int:
         """Return the unit's power at its star level."""
@@ -305,7 +308,29 @@ class Player:
     @property
     def board_limit(self) -> int:
         """Return how many units the player may field: one per level, plus item slots."""
-        return self.level + sum(unit.effect.extra_slots for unit in self.board)
+        return self.limit_for(self.board)
+
+    def limit_for(self, board: Sequence[Unit]) -> int:
+        """Return how many units ``board`` could hold: the level plus its item slots, capped by the cells."""
+        cells = self.rules.board_rows * self.rules.board_cols
+        return min(cells, self.level + sum(unit.effect.extra_slots for unit in board))
+
+    def occupied(self) -> set[Cell]:
+        """Return the cells that fielded units stand on."""
+        return {unit.position for unit in self.board if unit.position is not None}
+
+    def unit_in(self, cell: Cell) -> Unit | None:
+        """Return the fielded unit standing on ``cell``, if any."""
+        return next((unit for unit in self.board if unit.position == cell), None)
+
+    def ensure_positions(self) -> None:
+        """Give every fielded unit that has no cell its default one.
+
+        Boards built directly (the scripted Market, tests) get their formation here.
+        """
+        for unit in self.board:
+            if unit.position is None:
+                unit.position = default_cell(unit.champion.role, self.occupied(), self.rules)
 
     @property
     def units(self) -> list[Unit]:
@@ -331,22 +356,22 @@ class Player:
         """Buy the champion in shop ``slot`` onto the bench and merge star-ups.
 
         Raises:
-            ValueError: If the slot is invalid or empty, the gold is short, or
+            Refusal: If the slot is invalid or empty, the gold is short, or
                 the bench is full and the purchase would not complete a star-up.
         """
         if not 0 <= slot < len(self.shop):
             msg = f"shop slot {slot} does not exist"
-            raise ValueError(msg)
+            raise Refusal(msg)
         unit = self.shop[slot]
         if unit is None:
             msg = f"shop slot {slot} is empty"
-            raise ValueError(msg)
+            raise Refusal(msg)
         if self.gold < unit.cost:
             msg = f"{unit.name} costs {unit.cost} gold, {self.gold} available"
-            raise ValueError(msg)
+            raise Refusal(msg)
         if len(self.bench) >= self.rules.bench_size and not self.completes_star_up(unit):
             msg = "the bench is full"
-            raise ValueError(msg)
+            raise Refusal(msg)
         pool.take(unit.name)
         self.gold -= unit.cost
         self.shop[slot] = None
@@ -393,15 +418,16 @@ class Player:
         """Take ``unit`` off the board or the bench.
 
         Raises:
-            ValueError: If the player does not own ``unit``.
+            Refusal: If the player does not own ``unit``.
         """
         if unit in self.board:
             self.board.remove(unit)
+            unit.position = None
         elif unit in self.bench:
             self.bench.remove(unit)
         else:
             msg = f"{self.name} does not own that {unit.champion.name}"
-            raise ValueError(msg)
+            raise Refusal(msg)
 
     def sell(self, unit: Unit, pool: Pool) -> int:
         """Sell ``unit``: copies back to the pool, items to the inventory; return the gold."""
@@ -417,7 +443,7 @@ class Player:
         """Combine components ``first`` and ``second`` (inventory numbers) into an item.
 
         Raises:
-            ValueError: If either number is out of range or they are the same component.
+            Refusal: If either number is out of range or they are the same component.
         """
         count = len(self.components)
         if first == second or not (0 <= first < count and 0 <= second < count):
@@ -426,7 +452,7 @@ class Player:
                 if count
                 else "no components"
             )
-            raise ValueError(msg)
+            raise Refusal(msg)
         item = craft(self.components[first], self.components[second])
         for index in sorted((first, second), reverse=True):
             del self.components[index]
@@ -437,22 +463,22 @@ class Player:
         """Give item ``item_index`` of the inventory to ``unit``.
 
         Raises:
-            ValueError: If the player does not own the unit, the item number is
+            Refusal: If the player does not own the unit, the item number is
                 out of range, or the unit already holds the maximum.
         """
         if unit not in self.units:
             msg = f"{self.name} does not own that {unit.champion.name}"
-            raise ValueError(msg)
+            raise Refusal(msg)
         if not 0 <= item_index < len(self.items):
             msg = (
                 f"item number must be 0 to {len(self.items) - 1}"
                 if self.items
                 else "no items to equip"
             )
-            raise ValueError(msg)
+            raise Refusal(msg)
         if len(unit.items) >= self.rules.max_items_per_unit:
             msg = f"{unit.champion.name} already holds {self.rules.max_items_per_unit} items"
-            raise ValueError(msg)
+            raise Refusal(msg)
         item = self.items.pop(item_index)
         unit.items.append(item)
         return item
@@ -476,14 +502,14 @@ class Player:
         """Spend gold on experience.
 
         Raises:
-            ValueError: If the player is at the level cap or short of gold.
+            Refusal: If the player is at the level cap or short of gold.
         """
         if self.level >= self.rules.max_level:
             msg = f"{self.name} is already level {self.rules.max_level}"
-            raise ValueError(msg)
+            raise Refusal(msg)
         if self.gold < self.rules.xp_purchase_cost:
             msg = f"buying xp costs {self.rules.xp_purchase_cost} gold, {self.gold} available"
-            raise ValueError(msg)
+            raise Refusal(msg)
         self.gold -= self.rules.xp_purchase_cost
         self.add_xp(self.rules.xp_per_purchase)
 
@@ -491,56 +517,86 @@ class Player:
         """Pay for a new shop.
 
         Raises:
-            ValueError: If the player is short of gold.
+            Refusal: If the player is short of gold.
         """
         if self.gold < self.rules.reroll_cost:
             msg = f"a reroll costs {self.rules.reroll_cost} gold, {self.gold} available"
-            raise ValueError(msg)
+            raise Refusal(msg)
         self.gold -= self.rules.reroll_cost
         self.shop = roll_shop(self.level, pool, rng, self.rules)
 
-    def field_unit(self, unit: Unit) -> None:
-        """Move ``unit`` from the bench to the board.
+    def field_unit(self, unit: Unit, cell: Cell | None = None) -> None:
+        """Move ``unit`` from the bench to the board, onto ``cell`` or its default cell.
+
+        Fielding onto an occupied cell swaps: the unit that stood there goes to the bench.
 
         Raises:
-            ValueError: If ``unit`` is not on the bench or the board is full.
+            Refusal: If ``unit`` is not on the bench, the cell is off the board, or the board is full.
         """
         if unit not in self.bench:
-            msg = f"that {unit.champion.name} is not on {self.name}'s bench"
-            raise ValueError(msg)
-        if len(self.board) >= self.board_limit:
-            msg = f"the board holds {self.board_limit} units at level {self.level}"
-            raise ValueError(msg)
+            raise Refusal(f"that {unit.champion.name} is not on {self.name}'s bench")
+        self.ensure_positions()
+        target = cell if cell is not None else self.free_cell(unit)
+        check_cell(target, self.rules)
+        occupant = self.unit_in(target)
+        staying = [other for other in self.board if other is not occupant]
+        if len(staying) + 1 > self.limit_for([*staying, unit]):
+            raise Refusal(f"the board holds {self.board_limit} units at level {self.level}")
         self.bench.remove(unit)
+        if occupant is not None:
+            self.board.remove(occupant)
+            occupant.position = None
+            self.bench.append(occupant)
+        unit.position = target
         self.board.append(unit)
+
+    def free_cell(self, unit: Unit) -> Cell:
+        """Return the default free cell for ``unit``; a full grid gives the default cell of an empty board."""
+        cells = self.rules.board_rows * self.rules.board_cols
+        taken = self.occupied() if len(self.board) < cells else set()
+        return default_cell(unit.champion.role, taken, self.rules)
+
+    def move_unit(self, unit: Unit, cell: Cell) -> None:
+        """Move a fielded unit to ``cell``; if another unit stands there, the two swap.
+
+        Raises:
+            Refusal: If ``unit`` is not on the board or the cell is off the board.
+        """
+        if unit not in self.board:
+            raise Refusal(f"that {unit.champion.name} is not on {self.name}'s board")
+        self.ensure_positions()
+        check_cell(cell, self.rules)
+        occupant = self.unit_in(cell)
+        if occupant is not None and occupant is not unit:
+            occupant.position = unit.position
+        unit.position = cell
 
     def bench_unit(self, unit: Unit) -> None:
         """Move ``unit`` from the board to the bench.
 
         Raises:
-            ValueError: If ``unit`` is not on the board or the bench is full.
+            Refusal: If ``unit`` is not on the board or the bench is full.
         """
         if unit not in self.board:
-            msg = f"that {unit.champion.name} is not on {self.name}'s board"
-            raise ValueError(msg)
+            raise Refusal(f"that {unit.champion.name} is not on {self.name}'s board")
         if len(self.bench) >= self.rules.bench_size:
-            msg = "the bench is full"
-            raise ValueError(msg)
+            raise Refusal("the bench is full")
         self.board.remove(unit)
+        unit.position = None
         self.bench.append(unit)
 
     def choose_augment(self, index: int) -> Augment:
         """Take augment ``index`` of the pending offer, apply it, and clear the offer.
 
         Raises:
-            ValueError: If nothing is on offer or ``index`` is out of range.
+            Refusal: If nothing is on offer or ``index`` is out of range.
         """
         if not self.pending_augments:
             msg = "no augment is on offer"
-            raise ValueError(msg)
+            raise Refusal(msg)
         if not 0 <= index < len(self.pending_augments):
             msg = f"augment choice must be 0 to {len(self.pending_augments) - 1}"
-            raise ValueError(msg)
+            raise Refusal(msg)
         augment = self.pending_augments[index]
         self.augments.append(augment)
         self.gold += augment.gold
@@ -759,15 +815,16 @@ class Game:
         The preview draws from its own random stream, so looking never changes the match.
 
         Raises:
-            ValueError: If the game has no market pack.
+            Refusal: If the game has no market pack.
         """
         if self.pack is None:
             msg = "the preview needs a market pack"
-            raise ValueError(msg)
+            raise Refusal(msg)
         seat = self.player(name)
         rng = Random(f"preview-{self.seed}-{self.round_index}")  # noqa: S311 - game randomness
         others = [player for player in self.alive if player.name != name]
-        return [(other.name, preview(seat, other, self.pack, self.rules, rng)) for other in others]
+        odds = preview_field(seat, others, self.pack, self.rules, rng)
+        return [(other.name, probability) for other, probability in zip(others, odds, strict=True)]
 
     def start_round(self) -> RoundId:
         """Open the next round: deal the slice, pay income, run events, roll shops, bots plan.
