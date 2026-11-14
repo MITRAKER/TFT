@@ -406,3 +406,30 @@ def test_main_lists_the_rules(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     assert "JPL01" in out
     assert "JPL08" in out
+
+
+def test_void_functions_are_recognised_across_the_project(tmp_path: Path) -> None:
+    (tmp_path / "helpers.py").write_text("def notify() -> None:\n    pass\n", encoding="utf-8")
+    caller = "from helpers import notify\n\n\ndef run() -> None:\n    notify()\n"
+    (tmp_path / "caller.py").write_text(caller, encoding="utf-8")
+    alone = jpl_check.check_file(tmp_path / "caller.py", Config(), tmp_path)
+    assert codes(alone) == ["JPL07"]
+    together = jpl_check.check_file(tmp_path / "caller.py", Config(), tmp_path, frozenset({"notify"}))
+    assert together == []
+    argv = ["--root", str(tmp_path), "--paths", "caller.py", "helpers.py", "--strict"]
+    assert jpl_check.main(argv) == 0
+    (tmp_path / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    names = jpl_check.project_void_names([tmp_path / "helpers.py", tmp_path / "broken.py"])
+    assert names == frozenset({"notify"})
+
+
+def test_standard_library_void_methods_are_exempt(tmp_path: Path) -> None:
+    source = """
+        def answer(handler: object) -> None:
+            handler.send_response(200)
+            handler.send_header("A", "b")
+            handler.end_headers()
+            handler.compute()
+        """
+    findings = check(tmp_path, source)
+    assert [(finding.rule, finding.line) for finding in findings] == [("JPL07", 6)]

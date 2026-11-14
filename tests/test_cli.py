@@ -13,17 +13,22 @@ import pytest
 from tft import cli
 from tft.cli import (
     Console,
+    cell_label,
     handle_command,
     main,
     parse_command,
     render_report,
     render_scout,
     render_status,
+    render_summary,
     standard_console,
 )
-from tft.environment import AUGMENTS, CombatResult, Game, Player, RoundId, RoundReport
+from tft.environment import AUGMENTS, CombatResult, Game, Player, RoundId, RoundReport, Unit
+from tft.lessons import RoundSummary
 from tft.replay import Replay
+from tft.roster import champion
 from tft.rules import Rules
+from tft.server import GameServer
 
 
 class FakeConsole:
@@ -71,7 +76,7 @@ def test_parse_command() -> None:
 def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     rules_path = short_rules(tmp_path)
     replay_path = tmp_path / "match.json"
-    script = ["h", "o", "b 0", "f 0", "zz", "b 99", "b x", "p", "", "x", "c 0 1", "i 0 0", "", "e"]
+    script = ["h", "o", "b 0", "f 0", "m 0 0 0", "zz", "b 99", "b x", "p", "", "x", "c 0 1", "i 0 0", "", "e"]
     fake = FakeConsole(script)
     status = main(
         [
@@ -92,6 +97,9 @@ def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     assert "unknown command 'zz'" in fake.text
     assert "cannot: shop slot 99" in fake.text
     assert "cannot: a command takes" in fake.text
+    assert "to row 0, column 0" in fake.text
+    assert "@0,0" in fake.text
+    assert "You " in fake.text
     assert "Odds of winning" in fake.text
     assert "Market slice:" in fake.text
     assert "crafted " in fake.text
@@ -336,3 +344,46 @@ def test_replay_with_an_unknown_pack_name_needs_the_file(tmp_path: Path) -> None
     missing = FakeConsole([])
     assert main(["replay", str(replay_path), "--rules", str(rules_path)], missing.console) == 2
     assert "pass it with --pack" in missing.text
+
+
+def test_render_summary_and_cell_labels() -> None:
+    def summary(outcome: str, opponent: str | None, damage: int, lessons: tuple[str, ...]) -> RoundSummary:
+        return RoundSummary("2-1", None, opponent, outcome, 0.0, 0.0, damage, (), (), lessons)
+
+    assert render_summary(summary("none", None, 0, ())) == "You did not fight this round."
+    assert render_summary(summary("won", "ana", 0, ())) == "You won against ana."
+    assert render_summary(summary("draw", "bo", 0, ())) == "You drew against bo."
+    lost = render_summary(summary("lost", "The Market", 7, ("Slam items.", "Scout.")))
+    assert lost.splitlines() == [
+        "You lost against The Market, -7 hp.",
+        "Lesson: Slam items.",
+        "Lesson: Scout.",
+    ]
+    assert cell_label(Unit(champion("Pip Squeak"))) == ""
+    assert cell_label(Unit(champion("Pip Squeak"), position=(3, 2))) == "@3,2"
+
+
+def test_serve_runs_until_interrupted(monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[str] = []
+
+    def interrupted(_self: GameServer, poll_interval: float = 0.5) -> None:
+        del poll_interval
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(GameServer, "serve_forever", interrupted)
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+    fake = FakeConsole([])
+    assert main(["serve", "--port", "0", "--open"], fake.console) == 0
+    assert "is serving at http://127.0.0.1:" in fake.out[0]
+    assert fake.out[-1] == "Stopped."
+    assert len(opened) == 1
+    assert opened[0].startswith("http://127.0.0.1:")
+    quiet = FakeConsole([])
+    assert main(["serve", "--port", "0"], quiet.console) == 0
+    assert len(opened) == 1
+
+
+def test_serve_rejects_a_bad_port() -> None:
+    fake = FakeConsole([])
+    assert main(["serve", "--port", "70000"], fake.console) == 2
+    assert "error: port must be 0 to 65535" in fake.text
