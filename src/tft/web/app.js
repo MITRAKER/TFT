@@ -33,23 +33,26 @@ const view = { match: null, catalog: null, selection: null, auto: false, busy: f
 
 const $ = (id) => document.getElementById(id);
 
+function setProp(node, key, value) {
+  if (key === "class") {
+    node.className = value;
+  } else if (key === "text") {
+    node.textContent = value;
+  } else if (key === "data") {
+    Object.assign(node.dataset, value);
+  } else if (key.startsWith("on")) {
+    node.addEventListener(key.slice(2), value);
+  } else {
+    node.setAttribute(key, value === true ? "" : String(value));
+  }
+}
+
 /** Create an element; `props` sets class, text, data, listeners (onclick...) and attributes. */
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
-    if (value === null || value === undefined || value === false) {
-      continue;
-    }
-    if (key === "class") {
-      node.className = value;
-    } else if (key === "text") {
-      node.textContent = value;
-    } else if (key === "data") {
-      Object.assign(node.dataset, value);
-    } else if (key.startsWith("on")) {
-      node.addEventListener(key.slice(2), value);
-    } else {
-      node.setAttribute(key, value === true ? "" : String(value));
+    if (value !== null && value !== undefined && value !== false) {
+      setProp(node, key, value);
     }
   }
   for (const child of [].concat(children)) {
@@ -84,7 +87,7 @@ async function request(method, path, body) {
   } catch {
     throw new Refused("Cannot reach the server.");
   }
-  let data = null;
+  let data;
   try {
     data = await response.json();
   } catch {
@@ -919,27 +922,35 @@ function toggleAuto() {
 
 /* Wiring ------------------------------------------------------------------- */
 
-function onKey(event) {
-  if (event.key === "Escape") {
-    if (!$("overlay").hidden) {
-      closeDialog();
-    } else if (view.selection) {
-      view.selection = null;
-      renderGame();
-    }
-    return;
+function onEscape() {
+  if (!$("overlay").hidden) {
+    closeDialog();
+  } else if (view.selection) {
+    view.selection = null;
+    renderGame();
   }
-  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName);
-  if (typing || $("game").hidden || !$("overlay").hidden || event.ctrlKey || event.metaKey) {
-    return;
-  }
-  const key = event.key.toLowerCase();
+}
+
+/** D rerolls, F buys experience, E sells the selected unit: the genre's usual keys. */
+function onShortcut(key) {
   if (key === "d") {
     act("reroll");
   } else if (key === "f") {
     act("xp");
   } else if (key === "e" && view.selection && view.selection.type === "unit") {
     act("sell", [view.selection.index]);
+  }
+}
+
+function onKey(event) {
+  if (event.key === "Escape") {
+    onEscape();
+    return;
+  }
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName);
+  const inGame = !$("game").hidden && $("overlay").hidden;
+  if (inGame && !typing && !event.ctrlKey && !event.metaKey) {
+    onShortcut(event.key.toLowerCase());
   }
 }
 

@@ -1,0 +1,4 @@
+# A short match for the browser tests: one opening stage and one full stage, low health.
+# Every rule that is not listed here keeps its default.
+stages = 2
+starting_health = 30
