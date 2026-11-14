@@ -26,6 +26,7 @@ from tft.cli import (
 )
 from tft.environment import AUGMENTS, CombatResult, Game, Player, RoundId, RoundReport, Unit
 from tft.lessons import RoundSummary
+from tft.name import GAME_NAME
 from tft.replay import Replay
 from tft.roster import champion
 from tft.rules import Rules
@@ -183,7 +184,7 @@ def test_sim_prints_placements() -> None:
 def test_rules_dump_and_check(tmp_path: Path) -> None:
     fake = FakeConsole([])
     assert main(["rules"], fake.console) == 0
-    assert fake.text.startswith("# Ticker Fight Tactics rule set")
+    assert fake.text.startswith(f"# {GAME_NAME} rule set")
     path = tmp_path / "rules.toml"
     path.write_text(fake.text + "\n", encoding="utf-8")
     check = FakeConsole([])

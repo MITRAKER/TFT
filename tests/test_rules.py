@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from tft.name import GAME_NAME
 from tft.rules import DEFAULT_RULES, Rules, toml_value
 
 
@@ -20,7 +21,7 @@ def test_defaults_describe_a_full_match() -> None:
 
 def test_toml_round_trip_is_exact() -> None:
     text = DEFAULT_RULES.to_toml()
-    assert text.startswith("# Ticker Fight Tactics rule set")
+    assert text.startswith(f"# {GAME_NAME} rule set")
     assert Rules.from_mapping(tomllib.loads(text)) == DEFAULT_RULES
 
 

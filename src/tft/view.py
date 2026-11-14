@@ -18,6 +18,7 @@ from tft.environment import AUGMENTS, Augment, Game, Player, RoundId, RoundRepor
 from tft.items import COMPONENT_EFFECTS, Component, Effect, Item, craft
 from tft.lessons import RoundSummary
 from tft.market import MarketPack
+from tft.name import GAME_NAME
 from tft.roster import CHAMPIONS, TRAITS, trait_counts_for
 from tft.rules import Rules
 from tft.strategies import DESCRIPTIONS
@@ -246,6 +247,7 @@ def catalog(rules: Rules) -> Json:
     """Return the static content a client needs for tooltips: champions, traits, items, augments."""
     pairs = combinations_with_replacement(Component, 2)
     return {
+        "name": GAME_NAME,
         "champions": [
             {
                 "name": champion.name,

@@ -16,6 +16,8 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from tft.name import GAME_NAME
+
 COST_TIERS = (1, 2, 3, 4, 5)
 ODDS_TOTAL = 100
 INT_KEY_TABLES = (
@@ -263,7 +265,7 @@ class Rules:
                 tables += render_table(setting.name, value)
             else:
                 scalars.append(f"{setting.name} = {toml_value(value)}")
-        header = "# Ticker Fight Tactics rule set: every number the engine uses."
+        header = f"# {GAME_NAME} rule set: every number the engine uses."
         return "\n".join([header, *scalars, *tables]) + "\n"
 
     def digest(self) -> str:

@@ -236,6 +236,7 @@ def test_summary_view_is_plain_data() -> None:
 
 def test_catalog_lists_the_static_content() -> None:
     content = catalog(DEFAULT_RULES)
+    assert content["name"] == "Team Fight Tackticktics"
     assert len(content["champions"]) == 25
     assert len(content["traits"]) == 14
     assert len(content["items"]) == 36

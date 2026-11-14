@@ -135,6 +135,7 @@ function show(screen) {
   if (screen !== "spectate") {
     view.auto = false;
   }
+  $("toast").className = "toast";
 }
 
 /* Dialogs ------------------------------------------------------------------ */
@@ -966,6 +967,8 @@ async function start() {
   wire();
   await guarded(async () => {
     view.catalog = await request("GET", "/api/catalog");
+    document.title = view.catalog.name;
+    $("brand").textContent = view.catalog.name;
     await loadLobby();
   });
 }

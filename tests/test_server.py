@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from tft import __version__
+from tft.name import GAME_NAME
 from tft.rules import Rules
 from tft.server import (
     MAX_BODY,
@@ -107,7 +108,7 @@ def test_route_key() -> None:
 def test_health_and_catalog(api: Api) -> None:
     assert call(api, "GET", "/api/health") == (
         200,
-        {"ok": True, "status": "ok", "version": __version__},
+        {"ok": True, "status": "ok", "name": GAME_NAME, "version": __version__},
     )
     status, data = call(api, "GET", "/api/catalog?x=1")
     assert status == 200
@@ -325,6 +326,9 @@ def test_static_files(api: Api) -> None:
         assert (int(response.status), response.content_type) == (200, content_type)
         assert response.body
     assert api.handle("GET", "/?seed=3").status == 200
+    page = api.handle("GET", "/").body.decode("utf-8")
+    assert f"<title>{GAME_NAME}</title>" in page
+    assert f'class="brand">{GAME_NAME}</h1>' in page
     assert api.handle("GET", "/../pyproject.toml").status == 404
     assert api.handle("GET", "/nope.js").status == 404
     assert api.handle("POST", "/app.js").status == 405

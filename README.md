@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)
 
-**Ticker Fight Tactics** (working title) is a strategy game in the auto-battler
+**Team Fight Tackticktics** is a strategy game in the auto-battler
 genre in which the pieces are trading strategies, the gold is capital, and the
 battles are real market sessions replayed from history. The product
 requirements are in [docs/PRD.md](docs/PRD.md).

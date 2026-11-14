@@ -1,4 +1,4 @@
-# Product Requirements Document: Ticker Fight Tactics (codename TFT)
+# Product Requirements Document: Team Fight Tackticktics (TFT)
 
 | | |
 | --- | --- |
@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-Ticker Fight Tactics is a strategy game in the auto-battler genre in which the
+Team Fight Tackticktics is a strategy game in the auto-battler genre in which the
 pieces are **trading strategies**, the gold is **capital**, and the battles are
 **real market sessions replayed from historical data**. A player drafts a
 board of trader-champions from a shared shop, combines copies to star them up,
@@ -123,7 +123,7 @@ The match ends when one player remains, or at the hard round cap.
 
 ## 6. Mechanic mapping: auto-battler to trading
 
-| Auto-battler mechanic | In Ticker Fight Tactics | What it teaches |
+| Auto-battler mechanic | In Team Fight Tackticktics | What it teaches |
 | --- | --- | --- |
 | Little Legend with 100 health | The trader's **drawdown budget** | Health is a resource; blowing up is the only unrecoverable loss |
 | Gold | **Capital** | Compounding beats spending |
@@ -375,8 +375,11 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 
 ## 14. Open questions
 
-1. **Name.** "Ticker Fight Tactics" keeps the TFT initials; alternatives are
-   welcome. The name and all art must stay clear of Riot's marks.
+1. **Name.** Decided by the product owner on 2026-11-14: **Team Fight
+   Tackticktics**. It replaces the working title "Ticker Fight Tactics" and
+   keeps the TFT initials. It is kept in one place, `src/tft/name.py`. The
+   name, logo and store copy must stay distinct from Riot Games' trademark
+   "Teamfight Tactics".
 2. **Combat scoring.** Risk-adjusted P&L (for example return divided by
    maximum drawdown over the slice) or plain P&L? The first is more
    educational, the second more legible.

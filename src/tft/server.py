@@ -29,6 +29,7 @@ from tft.environment import PHASE_PLANNING, Game, RoundReport
 from tft.errors import Refusal
 from tft.lessons import RoundSummary, summarize
 from tft.market import MarketPack, load_builtin
+from tft.name import GAME_NAME
 from tft.replay import ACTIONS, Action, Replay, apply_action
 from tft.rules import DEFAULT_RULES, Rules
 from tft.view import Json, catalog, match_state, report_view, summary_view
@@ -391,7 +392,8 @@ class Api:
 
     def health(self, _request: Request) -> Response:
         """Report that the server is up, and its version."""
-        return json_response(HTTPStatus.OK, {"ok": True, "status": "ok", "version": __version__})
+        payload = {"ok": True, "status": "ok", "name": GAME_NAME, "version": __version__}
+        return json_response(HTTPStatus.OK, payload)
 
     def get_catalog(self, _request: Request) -> Response:
         """Return the static content: champions, traits, items, augments."""

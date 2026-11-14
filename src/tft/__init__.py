@@ -1,4 +1,4 @@
-"""Ticker Fight Tactics: the engine package.
+"""Team Fight Tackticktics: the engine package.
 
 The product is a trading auto-battler (see ``docs/PRD.md``). :mod:`tft.rules`
 holds every tunable number, :mod:`tft.economy` the income rules,
@@ -26,6 +26,7 @@ from tft.economy import (
 )
 from tft.environment import Game, Player, RoundId
 from tft.market import MarketPack, load_builtin
+from tft.name import GAME_NAME
 from tft.replay import Replay, run_replay, verify_replay
 from tft.roster import CHAMPIONS, TRAITS, Champion, Trait
 from tft.rules import DEFAULT_RULES, Rules
@@ -39,6 +40,7 @@ __all__ = [
     "BASE_INCOME",
     "CHAMPIONS",
     "DEFAULT_RULES",
+    "GAME_NAME",
     "MAX_INTEREST",
     "MAX_STREAK_BONUS",
     "TRAITS",

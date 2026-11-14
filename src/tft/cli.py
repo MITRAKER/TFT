@@ -28,6 +28,7 @@ from tft.combat import CombatResult
 from tft.environment import Game, Player, RoundId, RoundReport, SeatView, Unit
 from tft.lessons import RoundSummary, summarize
 from tft.market import MarketPack, load_builtin
+from tft.name import GAME_NAME
 from tft.replay import Action, Replay, apply_action, run_replay
 from tft.roster import active_traits_for
 from tft.rules import DEFAULT_RULES, Rules
@@ -356,8 +357,7 @@ def play(args: argparse.Namespace, console: Console) -> int:
     )
     arena = f"market pack {pack.name}" if pack is not None else "power comparison"
     console.write(
-        f"Ticker Fight Tactics {__version__} | seed {args.seed} | {len(names)} seats | {arena}"
-        " | h for help"
+        f"{GAME_NAME} {__version__} | seed {args.seed} | {len(names)} seats | {arena} | h for help"
     )
     for _ in range(len(game.rounds)):
         if game.finished or not seat.alive:
@@ -429,9 +429,7 @@ def serve(args: argparse.Namespace, console: Console) -> int:
         raise ValueError(msg)
     lobby = Lobby(load_rules(args.rules), load_pack(args.pack, market=True))
     server = create_server(args.host, args.port, lobby=lobby, verbose=args.verbose)
-    console.write(
-        f"Ticker Fight Tactics {__version__} is serving at {server.url} (Ctrl+C stops it)"
-    )
+    console.write(f"{GAME_NAME} {__version__} is serving at {server.url} (Ctrl+C stops it)")
     if args.open:
         _ = webbrowser.open(server.url)
     try:
@@ -511,7 +509,7 @@ def add_rules_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     parser = argparse.ArgumentParser(
-        prog="tft", description="Ticker Fight Tactics, the trading auto-battler."
+        prog="tft", description=f"{GAME_NAME}, the trading auto-battler."
     )
     parser.add_argument("--version", action="version", version=f"tft {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
