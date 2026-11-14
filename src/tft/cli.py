@@ -63,6 +63,7 @@ LOCAL_COMMANDS: dict[str, str] = {
 
 MAX_COMMAND_WORDS = 4
 MAX_PORT = 65535
+OUTCOME_VERBS = {"won": "won", "lost": "lost", "draw": "drew"}
 
 
 @dataclass(frozen=True)
@@ -183,7 +184,7 @@ def render_summary(summary: RoundSummary) -> str:
     else:
         versus = f" against {summary.opponent}" if summary.opponent else ""
         cost = f", -{summary.damage} hp" if summary.damage else ""
-        headline = f"You {summary.outcome}{versus}{cost}."
+        headline = f"You {OUTCOME_VERBS[summary.outcome]}{versus}{cost}."
     lessons = [f"Lesson: {lesson}" for lesson in summary.lessons]
     return "\n".join([headline, *lessons])
 
