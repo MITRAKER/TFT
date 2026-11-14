@@ -27,7 +27,13 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-REQUIRED_CHECKS = ("CI passed", "Standards passed", "Analyze (python)", "Analyze (actions)")
+REQUIRED_CHECKS = (
+    "CI passed",
+    "Standards passed",
+    "Analyze (python)",
+    "Analyze (actions)",
+    "Analyze (javascript-typescript)",
+)
 """Status checks a pull request must pass before it can merge into main."""
 
 REPOSITORY_ADMIN_ROLE = 5

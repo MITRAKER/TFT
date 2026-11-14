@@ -40,7 +40,7 @@ repository, and whenever GitHub adds a new protection.
 
 - Restrict deletions, block force pushes.
 - Require a pull request before merging; require conversation resolution.
-- Require status checks to pass, strict (branch must be up to date): `CI passed`, `Standards passed`, `Analyze (python)`, `Analyze (actions)`.
+- Require status checks to pass, strict (branch must be up to date): `CI passed`, `Standards passed`, `Analyze (python)`, `Analyze (actions)`, `Analyze (javascript-typescript)`.
 - Bypass: repository administrators, so the owner can still push an urgent fix directly. Remove the bypass once more than one person maintains the project.
 
 **Protect release tags** (tag ruleset, target: `refs/tags/v*`)
