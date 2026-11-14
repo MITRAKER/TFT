@@ -80,6 +80,12 @@ VOID_CALLS = frozenset(
         "rmtree",
         "seed",
         "seek",
+        "send_header",
+        "send_response",
+        "end_headers",
+        "serve_forever",
+        "server_close",
+        "shutdown",
         "setdefault",
         "shuffle",
         "sleep",
@@ -555,11 +561,21 @@ def discarded_result_problem(statement: ast.Expr, void_functions: frozenset[str]
     )
 
 
+def void_names(tree: ast.Module) -> frozenset[str]:
+    """Return the names of the functions in ``tree`` that are annotated as returning ``None``."""
+    functions = (node for node in ast.walk(tree) if isinstance(node, FUNCTION_TYPES))
+    return frozenset(function.name for function in functions if returns_none(function))
+
+
 def check_discarded_results(
-    tree: ast.Module, functions: Sequence[Function], path: str
+    tree: ast.Module, path: str, project_void: frozenset[str]
 ) -> list[Finding]:
-    """JPL07 (warning): report calls whose result is thrown away."""
-    void = frozenset(function.node.name for function in functions if returns_none(function.node))
+    """JPL07 (warning): report calls whose result is thrown away.
+
+    Calls to functions annotated ``-> None`` in this file, or anywhere in the
+    checked project (``project_void``), are made for their effect and are exempt.
+    """
+    void = void_names(tree) | project_void
     statements = (node for node in ast.walk(tree) if isinstance(node, ast.Expr))
     problems = ((statement, discarded_result_problem(statement, void)) for statement in statements)
     return [
@@ -589,8 +605,12 @@ def display_path(file: Path, root: Path) -> str:
     return file.as_posix()
 
 
-def check_file(file: Path, config: Config, root: Path) -> list[Finding]:
+def check_file(
+    file: Path, config: Config, root: Path, project_void: frozenset[str] = frozenset()
+) -> list[Finding]:
     """Run every rule on one file and return its findings, sorted by line.
+
+    ``project_void`` names functions annotated ``-> None`` elsewhere in the project.
 
     Raises:
         UsageError: If ``file`` is not a readable file.
@@ -612,7 +632,7 @@ def check_file(file: Path, config: Config, root: Path) -> list[Finding]:
         *check_assertions(functions, config, path),
         *check_scope(tree, path),
         *check_dynamic_code(tree, path),
-        *check_discarded_results(tree, functions, path),
+        *check_discarded_results(tree, path, project_void),
     ]
     lines = source.splitlines()
     kept = [finding for finding in findings if not suppressed(lines, finding)]
@@ -693,8 +713,21 @@ def run(args: argparse.Namespace) -> int:
         raise UsageError(msg)
     config = Config.from_pyproject(root / "pyproject.toml")
     files = list(iter_python_files(root, args.paths or config.paths, config.exclude))
-    findings = [finding for file in files for finding in check_file(file, config, root)]
+    void = project_void_names(files)
+    findings = [finding for file in files for finding in check_file(file, config, root, void)]
     return report(findings, len(files), args.format, strict=args.strict)
+
+
+def project_void_names(files: Sequence[Path]) -> frozenset[str]:
+    """Return the names of every function annotated ``-> None`` in ``files`` that parse."""
+    names: set[str] = set()
+    for file in files:
+        try:
+            tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
+        except SyntaxError:
+            continue
+        names |= void_names(tree)
+    return frozenset(names)
 
 
 def print_rules() -> None:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tft"
-version = "0.3.0"
+version = "0.4.0"
 description = "TFT: the product package, shipped with CI/CD, CodeQL, Dependabot, NASA/JPL Power of Ten checks and tagged stable releases."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -52,7 +52,7 @@ Security = "https://github.com/MITRAKER/TFT/security/policy"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tft = ["py.typed", "packs/*.json"]
+tft = ["py.typed", "packs/*.json", "web/*"]
 
 # ---------------------------------------------------------------------------
 # Code standards: formatting, lint, complexity, security and docstring rules

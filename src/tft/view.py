@@ -30,20 +30,15 @@ PHASE_FINISHED = "finished"
 
 def effect_text(effect: Effect) -> str:
     """Describe an item effect in a short line, for tooltips."""
-    parts: list[str] = []
-    if effect.stop_tenths != TENTHS:
-        parts.append(f"stop x{effect.stop_tenths / TENTHS:g}")
-    if effect.target_tenths != TENTHS:
-        parts.append(f"target x{effect.target_tenths / TENTHS:g}")
-    if effect.size_percent:
-        parts.append(f"size {effect.size_percent:+d}%")
-    if effect.shield_percent:
-        parts.append(f"drawdown shield {effect.shield_percent:+d}%")
-    if effect.trait is not None:
-        parts.append(f"counts as {effect.trait}")
-    if effect.extra_slots:
-        parts.append(f"+{effect.extra_slots} board slot")
-    return ", ".join(parts) or "no effect"
+    parts = (
+        (effect.stop_tenths != TENTHS, f"stop x{effect.stop_tenths / TENTHS:g}"),
+        (effect.target_tenths != TENTHS, f"target x{effect.target_tenths / TENTHS:g}"),
+        (effect.size_percent != 0, f"size {effect.size_percent:+d}%"),
+        (effect.shield_percent != 0, f"drawdown shield {effect.shield_percent:+d}%"),
+        (effect.trait is not None, f"counts as {effect.trait}"),
+        (effect.extra_slots != 0, f"+{effect.extra_slots} board slot"),
+    )
+    return ", ".join(text for applies, text in parts if applies) or "no effect"
 
 
 def item_view(item: Item) -> Json:
@@ -64,7 +59,9 @@ def unit_view(unit: Unit, index: int, pack: MarketPack | None, rules: Rules) -> 
     """Return a unit as a client draws it; ``index`` is its number for actions."""
     champion = unit.champion
     cell = unit.position
-    traded = pack is not None and cell is not None
+    symbol = None
+    if pack is not None and cell is not None:
+        symbol = unit_symbol(pack, champion.origin, cell[1])
     return {
         "index": index,
         "name": champion.name,
@@ -76,13 +73,13 @@ def unit_view(unit: Unit, index: int, pack: MarketPack | None, rules: Rules) -> 
         "items": [item_view(item) for item in unit.items],
         "traits": list(unit.traits),
         "cell": list(cell) if cell is not None else None,
-        "symbol": unit_symbol(pack, champion.origin, cell[1]) if traded else None,
+        "symbol": symbol,
         "sell": sell_value(champion.cost, unit.star, rules),
     }
 
 
 def trait_views(player: Player) -> list[Json]:
-    """Return the traits on the seat's board with their counts, tiers and bonuses, strongest first."""
+    """Return the traits on the seat's board with counts, tiers and bonuses, strongest first."""
     counts = trait_counts_for(player.board_entries())
     views = [
         {

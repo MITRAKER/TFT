@@ -311,7 +311,7 @@ class Player:
         return self.limit_for(self.board)
 
     def limit_for(self, board: Sequence[Unit]) -> int:
-        """Return how many units ``board`` could hold: the level plus its item slots, capped by the cells."""
+        """Return how many units ``board`` may hold: level plus item slots, capped by the cells."""
         cells = self.rules.board_rows * self.rules.board_cols
         return min(cells, self.level + sum(unit.effect.extra_slots for unit in board))
 
@@ -531,7 +531,8 @@ class Player:
         Fielding onto an occupied cell swaps: the unit that stood there goes to the bench.
 
         Raises:
-            Refusal: If ``unit`` is not on the bench, the cell is off the board, or the board is full.
+            Refusal: If ``unit`` is not on the bench, the cell is off the board, or the
+                board is full.
         """
         if unit not in self.bench:
             raise Refusal(f"that {unit.champion.name} is not on {self.name}'s bench")
@@ -551,7 +552,7 @@ class Player:
         self.board.append(unit)
 
     def free_cell(self, unit: Unit) -> Cell:
-        """Return the default free cell for ``unit``; a full grid gives the default cell of an empty board."""
+        """Return the default free cell for ``unit``; on a full grid, the cell it swaps into."""
         cells = self.rules.board_rows * self.rules.board_cols
         taken = self.occupied() if len(self.board) < cells else set()
         return default_cell(unit.champion.role, taken, self.rules)

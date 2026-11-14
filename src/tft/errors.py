@@ -9,7 +9,7 @@ shown to a player as is.
 from __future__ import annotations
 
 
-class Refusal(ValueError):
+class Refusal(ValueError):  # noqa: N818 - a refusal is the rules saying no, not an error
     """An action the rules do not allow, with a reason that is safe to show the player."""
 
     def __init__(self, reason: str) -> None:

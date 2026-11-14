@@ -248,7 +248,7 @@ STRATEGIES: Mapping[str, Strategy] = {
 
 DESCRIPTIONS: Mapping[str, str] = {
     "Swing": "Buys the first open and holds to the last close.",
-    "Momentum": "Waits for a close above the opening range, then rides it with a stop and a target.",
+    "Momentum": "Waits for a close above the opening range, then rides it with a stop and target.",
     "Contrarian": "Buys a close that drops below the running average and aims back at it.",
     "Scalper": "Trades every bar in the direction of the last one and pays costs each time.",
     "Hedger": "Holds like a Swing, with a floor under the loss that costs a premium.",

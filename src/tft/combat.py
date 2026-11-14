@@ -251,5 +251,5 @@ def preview_field(
 
 
 def preview(home: Player, away: Player, pack: MarketPack, rules: Rules, rng: Random) -> float:
-    """Return the share of bootstrapped slices ``home`` wins against ``away``; a draw counts half."""
+    """Return the share of bootstrapped slices ``home`` wins; a draw counts half."""
     return preview_field(home, [away], pack, rules, rng)[0]

@@ -15,9 +15,9 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from tft.combat import CombatResult, board_trades
+from tft.combat import CombatResult, UnitTrade, board_trades
 from tft.economy import streak_bonus
-from tft.environment import Game, Player, RoundId, RoundReport, stage_damage
+from tft.environment import Game, Player, RoundId, RoundReport, Unit, stage_damage
 from tft.formation import Cell, is_back_half, is_covered
 from tft.market import Bar, Slice
 from tft.strategies import Mark
@@ -258,12 +258,17 @@ def idle_components(facts: Facts) -> str | None:
     return None
 
 
+def rival_counts(facts: Facts) -> Counter[str]:
+    """Count, per champion, the other living seats that field it."""
+    others = [other for other in facts.game.alive if other is not facts.player]
+    fielded = ({unit.champion.name for unit in other.board} for other in others)
+    return Counter(name for names in fielded for name in names)
+
+
 def contested(facts: Facts) -> str | None:
     """A fielded champion that several other boards also field."""
-    player = facts.player
-    others = [other for other in facts.game.alive if other is not player]
-    counts = Counter(name for other in others for name in {u.champion.name for u in other.board})
-    mine = sorted({unit.champion.name for unit in player.board})
+    counts = rival_counts(facts)
+    mine = sorted({unit.champion.name for unit in facts.player.board})
     if not mine:
         return None
     name = max(mine, key=lambda one: counts[one])
@@ -360,35 +365,36 @@ def normalised(bars: tuple[Bar, ...]) -> tuple[float, ...]:
     return tuple(round(bar.close / first * PERCENT, DECIMALS) for bar in bars)
 
 
+def line_for(unit: Unit, trade: UnitTrade, bars: tuple[Bar, ...]) -> UnitLine:
+    """Return the summary line of one unit's trade on ``bars``."""
+    outcome = trade.outcome
+    raw_move = (bars[-1].close / bars[0].open - 1) * PERCENT
+    return UnitLine(
+        trade.unit,
+        trade.champion,
+        trade.role,
+        trade.origin,
+        trade.symbol,
+        trade.cell,
+        tuple(item.name for item in unit.items),
+        round(outcome.pnl, DECIMALS),
+        round(outcome.drawdown, DECIMALS),
+        outcome.trades,
+        round(trade.score, DECIMALS),
+        round(raw_move, DECIMALS),
+        normalised(bars),
+        outcome.marks,
+    )
+
+
 def unit_lines(game: Game, player: Player) -> tuple[UnitLine, ...]:
     """Return one line per fielded unit for the round's slice; empty without a market pack."""
     if game.pack is None or game.slice is None:
         return ()
-    trades = board_trades(player, game.slice, game.pack, game.rules)
-    lines: list[UnitLine] = []
-    for unit, trade in zip(player.board, trades, strict=True):
-        bars = game.slice.bars[trade.symbol]
-        raw_move = (bars[-1].close / bars[0].open - 1) * PERCENT
-        outcome = trade.outcome
-        lines.append(
-            UnitLine(
-                trade.unit,
-                trade.champion,
-                trade.role,
-                trade.origin,
-                trade.symbol,
-                trade.cell,
-                tuple(item.name for item in unit.items),
-                round(outcome.pnl, DECIMALS),
-                round(outcome.drawdown, DECIMALS),
-                outcome.trades,
-                round(trade.score, DECIMALS),
-                round(raw_move, DECIMALS),
-                normalised(bars),
-                outcome.marks,
-            )
-        )
-    return tuple(lines)
+    market = game.slice
+    trades = board_trades(player, market, game.pack, game.rules)
+    pairs = zip(player.board, trades, strict=True)
+    return tuple(line_for(unit, trade, market.bars[trade.symbol]) for unit, trade in pairs)
 
 
 def origin_moves(game: Game, market: Slice | None) -> tuple[tuple[str, float], ...]:
@@ -411,6 +417,13 @@ def outcome_of(result: CombatResult | None, name: str) -> str:
     return WON if result.winner == name else LOST
 
 
+def damage_taken(game: Game, report: RoundReport, result: CombatResult | None, name: str) -> int:
+    """Return the health ``name`` lost in the round: nothing unless it lost its fight."""
+    if result is None or result.is_draw or result.winner == name:
+        return 0
+    return stage_damage(report.round_id.stage, game.rules) + result.survivors
+
+
 def summarize(game: Game, name: str, report: RoundReport) -> RoundSummary:
     """Summarise the round ``report`` describes for the seat ``name``.
 
@@ -424,8 +437,7 @@ def summarize(game: Game, name: str, report: RoundReport) -> RoundSummary:
     result = next((one for one in report.results if one.involves(name)), None)
     outcome = outcome_of(result, name)
     opponent = result.opponent_of(name) if result is not None else None
-    lost = outcome == LOST and result is not None
-    damage = stage_damage(report.round_id.stage, game.rules) + result.survivors if lost else 0
+    damage = damage_taken(game, report, result, name)
     units = unit_lines(game, player)
     facts = Facts(game, player, report.round_id, outcome, units)
     return RoundSummary(

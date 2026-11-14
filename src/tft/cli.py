@@ -2,7 +2,8 @@
 
 Examples::
 
-    tft play --seed 7                      # you against seven bots, on the starter market pack
+    tft serve                              # the browser client at http://127.0.0.1:8000/
+    tft play --seed 7                      # you against seven bots in the terminal
     tft play --seed 7 --no-market          # the same, decided by the power comparison instead
     tft sim --seed 7                       # bots only; prints the placements
     tft replay replays/match-7.json --verify
@@ -16,6 +17,7 @@ injectable, so the whole flow is covered by tests.
 from __future__ import annotations
 
 import argparse
+import webbrowser
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,11 +25,13 @@ from pathlib import Path
 
 from tft import __version__
 from tft.combat import CombatResult
-from tft.environment import Game, Player, RoundId, RoundReport, SeatView
+from tft.environment import Game, Player, RoundId, RoundReport, SeatView, Unit
+from tft.lessons import RoundSummary, summarize
 from tft.market import MarketPack, load_builtin
 from tft.replay import Action, Replay, apply_action, run_replay
 from tft.roster import active_traits_for
 from tft.rules import DEFAULT_RULES, Rules
+from tft.server import Lobby, create_server
 
 BOT_NAMES = ("ana", "bo", "cy", "di", "ed", "fay", "gus", "hal")
 DEFAULT_SEAT = "you"
@@ -39,7 +43,8 @@ ACTION_COMMANDS: dict[str, tuple[str, str]] = {
     "s": ("sell", "s <unit>    sell unit number <unit>"),
     "r": ("reroll", "r           reroll the shop"),
     "x": ("xp", "x           buy experience"),
-    "f": ("field", "f <unit>    move a bench unit to the board"),
+    "f": ("field", "f <unit> [row col]   move a bench unit to the board, onto a cell if given"),
+    "m": ("move", "m <unit> <row> <col> move a board unit to another cell (row 0 is the front)"),
     "u": ("bench", "u <unit>    move a board unit to the bench"),
     "a": ("augment", "a <n>       take augment <n> from the offer"),
     "c": ("craft", "c <i> <j>   combine components <i> and <j> into an item"),
@@ -56,7 +61,8 @@ LOCAL_COMMANDS: dict[str, str] = {
 }
 """Commands handled by the client itself."""
 
-MAX_COMMAND_WORDS = 3
+MAX_COMMAND_WORDS = 4
+MAX_PORT = 65535
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,13 @@ def render_help() -> str:
     return "\n".join(lines)
 
 
+def cell_label(unit: Unit) -> str:
+    """Return ``@row,column`` for a fielded unit, and nothing for one that has no cell yet."""
+    if unit.position is None:
+        return ""
+    return f"@{unit.position[0]},{unit.position[1]}"
+
+
 def render_status(player: Player, round_id: RoundId) -> str:
     """Return the seat's situation: health, economy, board, bench, traits, items, shop and offers.
 
@@ -91,7 +104,9 @@ def render_status(player: Player, round_id: RoundId) -> str:
         raise ValueError(msg)
     kind = "PvE" if round_id.is_pve else "PvP"
     units = player.units
-    board = [f"[{i}] {u.describe()}" for i, u in enumerate(units) if u in player.board]
+    board = [
+        f"[{i}] {u.describe()} {cell_label(u)}" for i, u in enumerate(units) if u in player.board
+    ]
     bench = [f"[{i}] {u.describe()}" for i, u in enumerate(units) if u in player.bench]
     traits = sorted(active_traits_for(player.board_entries()).items())
     shop = [
@@ -161,6 +176,18 @@ def render_report(report: RoundReport) -> str:
     return "\n".join(lines)
 
 
+def render_summary(summary: RoundSummary) -> str:
+    """Return the seat's result for the round and what the round teaches."""
+    if summary.outcome == "none":
+        headline = "You did not fight this round."
+    else:
+        versus = f" against {summary.opponent}" if summary.opponent else ""
+        cost = f", -{summary.damage} hp" if summary.damage else ""
+        headline = f"You {summary.outcome}{versus}{cost}."
+    lessons = [f"Lesson: {lesson}" for lesson in summary.lessons]
+    return "\n".join([headline, *lessons])
+
+
 def render_placements(game: Game) -> str:
     """Return the final standings."""
     lines = ["== Final placements =="]
@@ -171,17 +198,17 @@ def render_placements(game: Game) -> str:
 
 
 def parse_command(line: str) -> tuple[str, tuple[int, ...]]:
-    """Split a command line into its key and up to two numbers; an empty line ends planning.
+    """Split a command line into its key and up to three numbers; an empty line ends planning.
 
     Raises:
-        ValueError: If there are more than two arguments or one is not a whole number.
+        ValueError: If there are more than three arguments or one is not a whole number.
     """
     parts = line.split()
     if not parts:
         return ("e", ())
     key, rest = parts[0].lower(), parts[1:]
     if len(parts) > MAX_COMMAND_WORDS or not all(part.lstrip("-").isdigit() for part in rest):
-        msg = "a command takes up to two whole numbers"
+        msg = "a command takes up to three whole numbers"
         raise ValueError(msg)
     return (key, tuple(int(part) for part in rest))
 
@@ -263,7 +290,9 @@ def play_round(game: Game, player: Player, console: Console) -> tuple[list[Actio
             return actions, False
         if outcome == "end":
             break
-    console.write(render_report(game.finish_round()))
+    report = game.finish_round()
+    console.write(render_report(report))
+    console.write(render_summary(summarize(game, player.name, report)))
     return actions, True
 
 
@@ -388,6 +417,31 @@ def rules_command(args: argparse.Namespace, console: Console) -> int:
     return 0
 
 
+def serve(args: argparse.Namespace, console: Console) -> int:
+    """Serve the browser client and its API until interrupted.
+
+    Raises:
+        ValueError: If the port is not between 0 and 65535.
+    """
+    if not 0 <= args.port <= MAX_PORT:
+        msg = f"port must be 0 to {MAX_PORT}"
+        raise ValueError(msg)
+    lobby = Lobby(load_rules(args.rules), load_pack(args.pack, market=True))
+    server = create_server(args.host, args.port, lobby=lobby, verbose=args.verbose)
+    console.write(
+        f"Ticker Fight Tactics {__version__} is serving at {server.url} (Ctrl+C stops it)"
+    )
+    if args.open:
+        _ = webbrowser.open(server.url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        console.write("Stopped.")
+    finally:
+        server.server_close()
+    return 0
+
+
 def add_market_options(parser: argparse.ArgumentParser) -> None:
     """Add the ``--pack`` and ``--no-market`` options."""
     parser.add_argument("--pack", help="market pack file (default: the built-in starter pack)")
@@ -428,6 +482,24 @@ def add_replay_command(commands: argparse._SubParsersAction[argparse.ArgumentPar
     parser.set_defaults(func=replay_command)
 
 
+def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Add ``tft serve``."""
+    parser = commands.add_parser("serve", help="serve the browser client")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000, help="port to listen on; 0 picks a free one"
+    )
+    parser.add_argument("--rules", help="TOML rule file (default: built-in rules)")
+    parser.add_argument("--pack", help="market pack file (default: the built-in starter pack)")
+    parser.add_argument(
+        "--open", action="store_true", help="open the client in the default browser"
+    )
+    parser.add_argument("--verbose", action="store_true", help="log every request")
+    parser.set_defaults(func=serve)
+
+
 def add_rules_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Add ``tft rules``."""
     parser = commands.add_parser("rules", help="print the default rules or check a rule file")
@@ -442,7 +514,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"tft {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
-    for add_command in (add_play_command, add_sim_command, add_replay_command, add_rules_command):
+    adders = (
+        add_serve_command,
+        add_play_command,
+        add_sim_command,
+        add_replay_command,
+        add_rules_command,
+    )
+    for add_command in adders:
         add_command(commands)
     return parser
 

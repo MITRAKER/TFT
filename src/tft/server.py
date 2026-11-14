@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from typing import Any, cast
+from typing import cast
 
 from tft import __version__
 from tft.environment import PHASE_PLANNING, Game, RoundReport
@@ -187,7 +187,7 @@ class Lobby:
         pack: MarketPack | None = None,
         max_matches: int = MAX_MATCHES,
     ) -> None:
-        """Start an empty lobby that plays under ``rules`` on ``pack`` (the starter pack by default).
+        """Start an empty lobby that plays under ``rules`` on ``pack``, by default the starter pack.
 
         Raises:
             ValueError: If ``max_matches`` is not positive.
@@ -272,7 +272,7 @@ def parse_body(body: bytes, content_type: str) -> Json:
     """
     if not body:
         return {}
-    if content_type.split(";")[0].strip().lower() != JSON_TYPE:
+    if content_type.split(";", maxsplit=1)[0].strip().lower() != JSON_TYPE:
         raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "send the body as application/json")
     try:
         data = json.loads(body)
@@ -368,7 +368,9 @@ class Api:
         if method != "GET":
             raise ApiError(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
         name, content_type = entry
-        return Response(HTTPStatus.OK, files("tft").joinpath("web", name).read_bytes(), content_type)
+        return Response(
+            HTTPStatus.OK, files("tft").joinpath("web", name).read_bytes(), content_type
+        )
 
     def route(self, method: str, path: str, body: bytes, content_type: str) -> Response:
         """Find the handler for an API path and call it.
@@ -403,7 +405,9 @@ class Api:
         """Create a match from ``seed``, ``bots``, ``market`` and ``spectate``."""
         data = request.data
         seed = data.get("seed")
-        number = secrets.randbelow(MAX_SEED) if seed is None else whole_number(seed, 0, MAX_SEED, "seed")
+        number = (
+            secrets.randbelow(MAX_SEED) if seed is None else whole_number(seed, 0, MAX_SEED, "seed")
+        )
         bots = whole_number(data.get("bots", len(BOT_NAMES) - 1), 1, len(BOT_NAMES) - 1, "bots")
         market = flag(data.get("market", True), "market")
         spectate = flag(data.get("spectate", False), "spectate")
@@ -524,15 +528,15 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     server_version = "tft"
 
-    def do_GET(self) -> None:  # noqa: N802 - the name is the standard library's contract
+    def do_GET(self) -> None:
         """Answer a GET request."""
         self.answer("GET")
 
-    def do_POST(self) -> None:  # noqa: N802 - the name is the standard library's contract
+    def do_POST(self) -> None:
         """Answer a POST request."""
         self.answer("POST")
 
-    def do_DELETE(self) -> None:  # noqa: N802 - the name is the standard library's contract
+    def do_DELETE(self) -> None:
         """Answer a DELETE request."""
         self.answer("DELETE")
 
@@ -561,7 +565,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             response = game_server.api.handle(method, self.path, body, content_type)
         except ApiError as error:
             response = json_response(error.status, {"ok": False, "error": error.message})
-        except Exception:  # noqa: BLE001 - the last line of defence: never leak details
+        except Exception:  # the last line of defence: never leak details
             self.log_error("unhandled error while answering a %s request", method)
             response = json_response(
                 HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "internal error"}
@@ -578,7 +582,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         _ = self.wfile.write(response.body)
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - standard library name
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - standard library name
         """Log requests only when the server is verbose."""
         if cast("GameServer", self.server).verbose:
             super().log_message(format, *args)
