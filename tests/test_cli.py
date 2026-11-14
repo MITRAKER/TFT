@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import runpy
 import sys
+import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -76,7 +77,23 @@ def test_parse_command() -> None:
 def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     rules_path = short_rules(tmp_path)
     replay_path = tmp_path / "match.json"
-    script = ["h", "o", "b 0", "f 0", "m 0 0 0", "zz", "b 99", "b x", "p", "", "x", "c 0 1", "i 0 0", "", "e"]
+    script = [
+        "h",
+        "o",
+        "b 0",
+        "f 0",
+        "m 0 0 0",
+        "zz",
+        "b 99",
+        "b x",
+        "p",
+        "",
+        "x",
+        "c 0 1",
+        "i 0 0",
+        "",
+        "e",
+    ]
     fake = FakeConsole(script)
     status = main(
         [
@@ -347,7 +364,9 @@ def test_replay_with_an_unknown_pack_name_needs_the_file(tmp_path: Path) -> None
 
 
 def test_render_summary_and_cell_labels() -> None:
-    def summary(outcome: str, opponent: str | None, damage: int, lessons: tuple[str, ...]) -> RoundSummary:
+    def summary(
+        outcome: str, opponent: str | None, damage: int, lessons: tuple[str, ...]
+    ) -> RoundSummary:
         return RoundSummary("2-1", None, opponent, outcome, 0.0, 0.0, damage, (), (), lessons)
 
     assert render_summary(summary("none", None, 0, ())) == "You did not fight this round."
@@ -371,7 +390,12 @@ def test_serve_runs_until_interrupted(monkeypatch: pytest.MonkeyPatch) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(GameServer, "serve_forever", interrupted)
-    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    def remember(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(webbrowser, "open", remember)
     fake = FakeConsole([])
     assert main(["serve", "--port", "0", "--open"], fake.console) == 0
     assert "is serving at http://127.0.0.1:" in fake.out[0]

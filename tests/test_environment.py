@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 from random import Random
 
 import pytest
 
 from tft import environment as env
 from tft.combat import CombatContext
-from tft.errors import Refusal
 from tft.environment import (
     AUGMENTS,
     BENCH_SIZE,
@@ -32,6 +32,7 @@ from tft.environment import (
     sell_value,
     stage_damage,
 )
+from tft.errors import Refusal
 from tft.roster import CHAMPIONS, champion, champions_of_cost
 from tft.rules import Rules
 
@@ -657,7 +658,7 @@ def test_moving_swaps_cells_and_benching_clears_them() -> None:
     with pytest.raises(Refusal, match="rows 0 to 3"):
         player.move_unit(first, (4, 0))
     player.bench_unit(first)
-    assert first.position is None
+    assert [unit.position for unit in player.bench] == [None]
     with pytest.raises(Refusal, match="not on tester's board"):
         player.move_unit(first, (0, 0))
     player.remove(second)
@@ -723,5 +724,5 @@ def test_rounds_in_a_row_are_fought_on_different_days() -> None:
         assert game.slice is not None
         starts.append(game.slice.start)
         _ = game.finish_round()
-    assert all(first != second for first, second in zip(starts, starts[1:], strict=False))
+    assert all(first != second for first, second in itertools.pairwise(starts))
     assert Game(["ana", "bo"]).deal_slice() is None

@@ -240,7 +240,9 @@ def test_catalog_lists_the_static_content() -> None:
     assert len(content["items"]) == 36
     assert len(content["components"]) == 8
     assert len(content["augments"]) == 6
-    assert set(content["strategies"]) == {trait["name"] for trait in content["traits"] if trait["kind"] == "class"}
+    assert set(content["strategies"]) == {
+        trait["name"] for trait in content["traits"] if trait["kind"] == "class"
+    }
     assert content["champions"][0]["text"]
     assert content["board"]["rows"] == 4
     assert json.loads(json.dumps(content)) == content

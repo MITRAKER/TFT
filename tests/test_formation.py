@@ -38,9 +38,22 @@ def test_preferred_rows_put_hedges_in_front_and_carries_at_the_back() -> None:
     assert preferred_row("Swing") == 1
     assert preferred_row("Momentum") == 3
     assert preferred_row("Whale") == 3
-    assert preferred_row("Swing", Rules(board_rows=1, row_size_percent=(100,), row_shield_percent=(0,), max_level=7,
-        shop_odds={level: DEFAULT_RULES.shop_odds[level] for level in range(1, 8)},
-        xp_to_next_level={level: DEFAULT_RULES.xp_to_next_level[level] for level in range(1, 7)})) == 0
+    assert (
+        preferred_row(
+            "Swing",
+            Rules(
+                board_rows=1,
+                row_size_percent=(100,),
+                row_shield_percent=(0,),
+                max_level=7,
+                shop_odds={level: DEFAULT_RULES.shop_odds[level] for level in range(1, 8)},
+                xp_to_next_level={
+                    level: DEFAULT_RULES.xp_to_next_level[level] for level in range(1, 7)
+                },
+            ),
+        )
+        == 0
+    )
 
 
 def test_row_order_prefers_the_row_then_its_neighbours_back_first() -> None:
@@ -85,7 +98,9 @@ def test_position_effect_by_row_and_cover() -> None:
 
 
 def test_position_effect_follows_the_rules() -> None:
-    rules = Rules(row_size_percent=(50, 60, 70, 150), cover_shield_percent=10, exposed_penalty_percent=40)
+    rules = Rules(
+        row_size_percent=(50, 60, 70, 150), cover_shield_percent=10, exposed_penalty_percent=40
+    )
     assert position_effect((3, 0), set(), rules).shield_percent == -40
     assert position_effect((3, 0), {(1, 0)}, rules).shield_percent == 10
     assert position_effect((3, 0), set(), rules).size_percent == 50

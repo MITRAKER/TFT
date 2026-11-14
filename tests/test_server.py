@@ -270,7 +270,11 @@ def test_spectating_shows_public_state_only(api: Api) -> None:
 def test_bot_matches_are_stepped_and_have_no_seat(api: Api) -> None:
     state = new_match(api, spectate=True, bots=3)
     match_id = state["id"]
-    assert (state["spectator"], state["has_seat"], state["phase"]) == (True, False, "between rounds")
+    assert (state["spectator"], state["has_seat"], state["phase"]) == (
+        True,
+        False,
+        "between rounds",
+    )
     assert len(state["others"]) == 4
     status, data = call(api, "POST", f"/api/matches/{match_id}/step")
     assert status == 200
@@ -370,7 +374,11 @@ def server() -> Iterator[GameServer]:
 
 
 def fetch(
-    server: GameServer, method: str, path: str, body: bytes | None = None, headers: dict[str, str] | None = None
+    server: GameServer,
+    method: str,
+    path: str,
+    body: bytes | None = None,
+    headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     request = urllib.request.Request(  # noqa: S310 - a local test server

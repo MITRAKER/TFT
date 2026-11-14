@@ -414,7 +414,9 @@ def test_void_functions_are_recognised_across_the_project(tmp_path: Path) -> Non
     (tmp_path / "caller.py").write_text(caller, encoding="utf-8")
     alone = jpl_check.check_file(tmp_path / "caller.py", Config(), tmp_path)
     assert codes(alone) == ["JPL07"]
-    together = jpl_check.check_file(tmp_path / "caller.py", Config(), tmp_path, frozenset({"notify"}))
+    together = jpl_check.check_file(
+        tmp_path / "caller.py", Config(), tmp_path, frozenset({"notify"})
+    )
     assert together == []
     argv = ["--root", str(tmp_path), "--paths", "caller.py", "helpers.py", "--strict"]
     assert jpl_check.main(argv) == 0
