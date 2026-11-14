@@ -62,7 +62,8 @@ def test_parse_command() -> None:
     assert parse_command("B 2") == ("b", (2,))
     assert parse_command("o") == ("o", ())
     assert parse_command("i 0 1") == ("i", (0, 1))
-    for bad in ("b x", "b 1 2 3"):
+    assert parse_command("m 0 3 2") == ("m", (0, 3, 2))
+    for bad in ("b x", "b 1 2 3 4"):
         with pytest.raises(ValueError, match="whole number"):
             parse_command(bad)
 

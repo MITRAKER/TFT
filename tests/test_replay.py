@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tft.environment import AUGMENTS, Game, Unit
+from tft.errors import Refusal
 from tft.items import Component
 from tft.market import load_builtin
 from tft.replay import Action, Replay, apply_action, run_replay, unit_at, verify_replay
@@ -96,7 +97,7 @@ def test_replay_json_round_trip(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="not a replay"):
         Replay.from_json({"format": 99})
     with pytest.raises(ValueError, match="incomplete"):
-        Replay.from_json({"format": 2, "seed": 1})
+        Replay.from_json({"format": 3, "seed": 1})
 
 
 def test_replay_reproduces_the_match() -> None:
@@ -130,3 +131,46 @@ def test_replay_on_a_market_pack_reproduces_the_match() -> None:
     with pytest.raises(ValueError, match="recorded with market pack 'starter'"):
         run_replay(replay)
     assert Replay.from_json(replay.to_json()) == replay
+
+
+def test_field_onto_a_cell_and_move_actions() -> None:
+    game = Game(NAMES, seed=1, policies={"you": None})
+    seat = game.player("you")
+    _ = game.start_round()
+    _ = apply_action(game, seat, Action("buy", (0,)))
+    message = apply_action(game, seat, Action("field", (0, 2, 5)))
+    assert message.endswith("at row 2, column 5")
+    assert seat.board[0].position == (2, 5)
+    assert apply_action(game, seat, Action("move", (0, 0, 1))).endswith("to row 0, column 1")
+    assert seat.board[0].position == (0, 1)
+    with pytest.raises(Refusal, match="a row and a column"):
+        apply_action(game, seat, Action("move", (0, 1)))
+    with pytest.raises(Refusal, match="a unit number, a row and a column"):
+        apply_action(game, seat, Action("move"))
+    with pytest.raises(Refusal, match="a row and a column"):
+        apply_action(game, seat, Action("field", (0, 1)))
+    with pytest.raises(Refusal, match="rows 0 to 3"):
+        apply_action(game, seat, Action("move", (0, 7, 7)))
+    with pytest.raises(Refusal) as refusal:
+        apply_action(game, seat, Action("dance"))
+    assert refusal.value.reason == "unknown action"
+
+
+def test_a_replay_with_positions_reproduces_the_match() -> None:
+    pack = load_builtin()
+    game = Game(NAMES, seed=9, policies={"you": None}, pack=pack)
+    replay = Replay(9, NAMES, "you", DEFAULT_RULES.digest(), pack.name)
+    seat = game.player("you")
+    for cell in ((3, 0), (0, 6)):
+        _ = game.start_round()
+        actions = [Action("buy", (0,))]
+        _ = apply_action(game, seat, actions[0])
+        actions.append(Action("field", (len(seat.units) - 1, *cell)))
+        _ = apply_action(game, seat, actions[1])
+        actions.append(Action("move", (0, 1, 1)))
+        _ = apply_action(game, seat, actions[2])
+        replay.rounds.append(actions)
+        _ = game.finish_round()
+    replay.result = game.run()
+    assert verify_replay(replay, DEFAULT_RULES, pack)
+    assert Replay.from_json(replay.to_json()).rounds == replay.rounds

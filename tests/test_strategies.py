@@ -126,3 +126,24 @@ def test_every_class_has_a_strategy() -> None:
     assert strategy_for("Swing") is hold
     with pytest.raises(ValueError, match="no strategy"):
         strategy_for("Banker")
+
+
+def test_strategies_mark_where_they_traded() -> None:
+    assert hold(RISING, PARAMS).marks == ((0, "buy"), (6, "sell"))
+    assert bracket(RISING, 0, PARAMS).marks == ((0, "buy"), (3, "target"))
+    assert bracket(FALLING, 0, PARAMS).marks == ((0, "buy"), (2, "stop"))
+    assert bracket(closes(100, 101, 101.5), 0, PARAMS).marks == ((0, "buy"), (2, "close"))
+    assert breakout(RISING, PARAMS).marks[0] == (3, "buy")
+    assert scalp(RISING, PARAMS).marks == ()
+    assert arbitrage(RISING, PARAMS).marks == ()
+    assert hedged(RISING, PARAMS).marks == hold(RISING, PARAMS).marks
+    assert whale(RISING, PARAMS).marks == hold(RISING, PARAMS).marks
+    assert quant(DIP, PARAMS).marks == breakout(DIP, PARAMS).marks + reversion(DIP, PARAMS).marks
+    assert FLAT.marks == ()
+
+
+def test_every_class_is_described() -> None:
+    from tft.strategies import DESCRIPTIONS  # noqa: PLC0415
+
+    assert set(DESCRIPTIONS) == set(STRATEGIES)
+    assert all(text.endswith(".") for text in DESCRIPTIONS.values())

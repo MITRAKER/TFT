@@ -8,6 +8,7 @@ import pytest
 
 from tft import environment as env
 from tft.combat import CombatContext
+from tft.errors import Refusal
 from tft.environment import (
     AUGMENTS,
     BENCH_SIZE,
@@ -600,3 +601,127 @@ def test_player_lookup() -> None:
     assert game.player("bo").name == "bo"
     with pytest.raises(KeyError, match="no player"):
         game.player("zed")
+
+
+# Positions ------------------------------------------------------------------
+
+
+def test_fielding_places_units_by_class_and_accepts_a_cell() -> None:
+    player = Player("tester", level=4)
+    clerk, bull, bo = Unit(champion("Coupon Clerk")), Unit(BULL), Unit(champion("Barrel Bo"))
+    player.bench = [clerk, bull, bo]
+    player.field_unit(clerk)
+    player.field_unit(bull)
+    player.field_unit(bo, (2, 5))
+    assert (clerk.position, bull.position, bo.position) == ((0, 3), (3, 3), (2, 5))
+    assert player.occupied() == {(0, 3), (3, 3), (2, 5)}
+    assert player.unit_in((3, 3)) is bull
+    assert player.unit_in((1, 1)) is None
+    stray = Unit(PIP)
+    player.bench.append(stray)
+    with pytest.raises(Refusal, match="rows 0 to 3"):
+        player.field_unit(stray, (9, 9))
+    assert stray in player.bench
+    assert isinstance(Refusal("x"), ValueError)
+
+
+def test_fielding_onto_an_occupied_cell_swaps_with_the_bench() -> None:
+    player = Player("tester", level=1)
+    first, second = Unit(PIP), Unit(DRONE)
+    player.bench = [first, second]
+    player.field_unit(first, (3, 0))
+    player.field_unit(second, (3, 0))
+    assert player.board == [second]
+    assert player.bench == [first]
+    assert (first.position, second.position) == (None, (3, 0))
+    third = Unit(GAZELLE)
+    player.bench.append(third)
+    with pytest.raises(Refusal, match="board holds 1 units"):
+        player.field_unit(third, (0, 0))
+    with pytest.raises(Refusal, match="not on tester's bench"):
+        player.field_unit(second)
+
+
+def test_moving_swaps_cells_and_benching_clears_them() -> None:
+    player = Player("tester", level=3)
+    first, second = Unit(PIP), Unit(DRONE)
+    player.bench = [first, second]
+    player.field_unit(first, (3, 0))
+    player.field_unit(second, (0, 0))
+    player.move_unit(first, (0, 0))
+    assert (first.position, second.position) == ((0, 0), (3, 0))
+    player.move_unit(first, (2, 4))
+    assert first.position == (2, 4)
+    player.move_unit(first, (2, 4))
+    assert first.position == (2, 4)
+    with pytest.raises(Refusal, match="rows 0 to 3"):
+        player.move_unit(first, (4, 0))
+    player.bench_unit(first)
+    assert first.position is None
+    with pytest.raises(Refusal, match="not on tester's board"):
+        player.move_unit(first, (0, 0))
+    player.remove(second)
+    assert second.position is None
+
+
+def test_an_index_fund_slot_is_counted_when_swapping() -> None:
+    from tft.items import Component, craft  # noqa: PLC0415
+
+    fund = craft(Component.PROSPECTUS, Component.PROSPECTUS)
+    player = Player("tester", level=1)
+    holder, extra, plain = Unit(BULL, items=[fund]), Unit(PIP), Unit(DRONE)
+    player.bench = [holder, extra, plain]
+    player.field_unit(holder, (3, 3))
+    player.field_unit(extra, (0, 3))
+    assert player.board_limit == 2
+    with pytest.raises(Refusal, match="board holds"):
+        player.field_unit(plain, (3, 3))
+    assert player.board == [holder, extra]
+    player.field_unit(plain, (0, 3))
+    assert player.board == [holder, plain]
+
+
+def test_ensure_positions_places_boards_built_directly() -> None:
+    player = Player("tester", level=9)
+    player.board = [Unit(PIP), Unit(champion("Coupon Clerk")), Unit(BULL, position=(2, 2))]
+    player.ensure_positions()
+    assert [unit.position for unit in player.board] == [(3, 3), (0, 3), (2, 2)]
+    market = env.market_board(RoundId.make(3, 1))
+    market.ensure_positions()
+    assert len(market.occupied()) == len(market.board)
+
+
+def test_free_cell_on_a_full_grid_points_at_a_swap() -> None:
+    rules = Rules(
+        board_rows=1,
+        board_cols=2,
+        row_size_percent=(100,),
+        row_shield_percent=(0,),
+        max_level=2,
+        shop_odds={1: (100, 0, 0, 0, 0), 2: (100, 0, 0, 0, 0)},
+        xp_to_next_level={1: 2},
+    )
+    player = Player("tester", level=2, rules=rules)
+    player.bench = [Unit(PIP), Unit(DRONE), Unit(GAZELLE)]
+    player.field_unit(player.bench[0])
+    player.field_unit(player.bench[0])
+    assert player.board_limit == 2
+    third = player.bench[0]
+    assert player.free_cell(third) == (0, 1)
+    player.field_unit(third)
+    assert third.position == (0, 1)
+    assert len(player.board) == 2
+
+
+def test_rounds_in_a_row_are_fought_on_different_days() -> None:
+    from tft.market import load_builtin  # noqa: PLC0415
+
+    game = Game(["ana", "bo"], seed=5, pack=load_builtin())
+    starts = []
+    for _ in range(12):
+        _ = game.start_round()
+        assert game.slice is not None
+        starts.append(game.slice.start)
+        _ = game.finish_round()
+    assert all(first != second for first, second in zip(starts, starts[1:], strict=False))
+    assert Game(["ana", "bo"]).deal_slice() is None
