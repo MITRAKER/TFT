@@ -92,7 +92,7 @@ class Rules:
     cover_shield_percent: int = 25
     exposed_penalty_percent: int = 25
     slice_bars: int = 10
-    risk_penalty_tenths: int = 5
+    risk_penalty_tenths: int = 3
     preview_samples: int = 200
     components_per_pve_round: int = 1
     max_items_per_unit: int = 3
@@ -102,9 +102,12 @@ class Rules:
     target_percent: int = 4
     reversion_threshold_tenths: int = 15
     hedge_floor_percent: int = 2
-    hedge_premium_tenths: int = 5
-    whale_leverage_tenths: int = 20
-    arb_capture_percent: int = 20
+    hedge_premium_tenths: int = 10
+    whale_leverage_tenths: int = 15
+    arb_capture_percent: int = 25
+    arb_quiet_move_tenths: int = 20
+    arb_adverse_percent: int = 50
+    scalp_threshold_tenths: int = 15
     pool_sizes: dict[int, int] = field(default_factory=_default_pool_sizes)
     shop_odds: dict[int, tuple[int, ...]] = field(default_factory=_default_shop_odds)
     xp_to_next_level: dict[int, int] = field(default_factory=_default_xp)
@@ -119,6 +122,7 @@ class Rules:
                 or a shop odds row does not add up to 100.
         """
         self._check_counts()
+        self._check_rounds()
         self._check_tables()
         self._check_board()
 
@@ -165,6 +169,9 @@ class Rules:
             "hedge_floor_percent",
             "hedge_premium_tenths",
             "arb_capture_percent",
+            "arb_quiet_move_tenths",
+            "arb_adverse_percent",
+            "scalp_threshold_tenths",
             "econ_reserve",
             "cover_shield_percent",
             "exposed_penalty_percent",
@@ -173,6 +180,9 @@ class Rules:
         if negative:
             msg = f"these rules must not be negative: {', '.join(negative)}"
             raise ValueError(msg)
+
+    def _check_rounds(self) -> None:
+        """Validate the settings that depend on one another."""
         if self.slice_bars < 2:  # noqa: PLR2004
             msg = "slice_bars must be at least 2"
             raise ValueError(msg)

@@ -392,7 +392,8 @@ def fetch(
         with opener.open(request, timeout=10) as response:
             return response.status, dict(response.headers), response.read()
     except urllib.error.HTTPError as error:
-        return error.code, dict(error.headers), error.read()
+        with error:
+            return error.code, dict(error.headers), error.read()
 
 
 def test_http_round_trip_with_security_headers(server: GameServer) -> None:

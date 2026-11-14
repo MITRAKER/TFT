@@ -34,6 +34,9 @@ class Params:
     hedge_premium: float
     leverage: float
     capture: float
+    quiet_move: float
+    adverse: float
+    scalp_threshold: float
 
     @classmethod
     def from_rules(cls, rules: Rules) -> Params:
@@ -48,6 +51,9 @@ class Params:
             hedge_premium=rules.hedge_premium_tenths / 10,
             leverage=rules.whale_leverage_tenths / 10,
             capture=float(rules.arb_capture_percent),
+            quiet_move=rules.arb_quiet_move_tenths / 10,
+            adverse=float(rules.arb_adverse_percent),
+            scalp_threshold=rules.scalp_threshold_tenths / 10,
         )
 
     def scaled(self, stop_tenths: int, target_tenths: int) -> Params:
@@ -175,7 +181,10 @@ def reversion(bars: Sequence[Bar], params: Params) -> Outcome:
 
 
 def scalp(bars: Sequence[Bar], params: Params) -> Outcome:
-    """Scalper: every bar, trade in the direction of the previous bar; pay costs every time.
+    """Scalper: after a big enough bar, trade the next one in the same direction.
+
+    A bar counts as big enough when it moved at least
+    ``params.scalp_threshold`` percent; every trade pays the trading cost.
 
     Raises:
         ValueError: If the slice is empty.
@@ -186,14 +195,15 @@ def scalp(bars: Sequence[Bar], params: Params) -> Outcome:
     closes = [bar.close for bar in bars]
     equity = 1.0
     path = [equity]
-    trades = 0
     for index in range(2, len(closes)):
-        direction = 1.0 if closes[index - 1] >= closes[index - 2] else -1.0
+        previous = closes[index - 1] / closes[index - 2] - 1
+        if abs(previous) * PERCENT < params.scalp_threshold:
+            continue
+        direction = 1.0 if previous >= 0 else -1.0
         move = closes[index] / closes[index - 1] - 1
         equity *= 1 + direction * move - params.cost_bps / BASIS_POINTS
         path.append(equity)
-        trades += 1
-    return Outcome((equity - 1) * PERCENT, path_drawdown(path), trades)
+    return Outcome((equity - 1) * PERCENT, path_drawdown(path), len(path) - 1)
 
 
 def hedged(bars: Sequence[Bar], params: Params) -> Outcome:
@@ -205,16 +215,29 @@ def hedged(bars: Sequence[Bar], params: Params) -> Outcome:
 
 
 def arbitrage(bars: Sequence[Bar], params: Params) -> Outcome:
-    """Arbitrageur: capture a fixed share of every bar's move, long or short, minus costs."""
-    require_bars(bars)
+    """Arbitrageur: earn a share of every quiet move, lose on the part of a move beyond it.
+
+    Each bar, the part of the move up to ``params.quiet_move`` percent pays
+    ``params.capture`` percent of itself; the part beyond it costs
+    ``params.adverse`` percent of itself (a market maker run over by a big
+    move); and every bar pays the trading cost.
+
+    Raises:
+        ValueError: If the slice is empty.
+    """
+    if not bars:
+        msg = "a strategy needs at least one bar"
+        raise ValueError(msg)
     closes = [bar.close for bar in bars]
-    captured = 0.0
+    equity = 1.0
+    path = [equity]
     for index in range(1, len(closes)):
         move = abs(closes[index] / closes[index - 1] - 1) * PERCENT
-        captured += move * params.capture / PERCENT - params.cost_bps / BASIS_POINTS * PERCENT
-    trades = len(closes) - 1
-    drawdown = max(0.0, trades * params.cost_bps / BASIS_POINTS * PERCENT)
-    return Outcome(captured, drawdown, trades)
+        earned = params.capture / PERCENT * min(move, params.quiet_move)
+        lost = params.adverse / PERCENT * max(0.0, move - params.quiet_move)
+        equity *= 1 + (earned - lost) / PERCENT - params.cost_bps / BASIS_POINTS
+        path.append(equity)
+    return Outcome((equity - 1) * PERCENT, path_drawdown(path), len(closes) - 1)
 
 
 def quant(bars: Sequence[Bar], params: Params) -> Outcome:
@@ -250,9 +273,9 @@ DESCRIPTIONS: Mapping[str, str] = {
     "Swing": "Buys the first open and holds to the last close.",
     "Momentum": "Waits for a close above the opening range, then rides it with a stop and target.",
     "Contrarian": "Buys a close that drops below the running average and aims back at it.",
-    "Scalper": "Trades every bar in the direction of the last one and pays costs each time.",
+    "Scalper": "After a big bar, trades the next one in the same direction; pays costs each time.",
     "Hedger": "Holds like a Swing, with a floor under the loss that costs a premium.",
-    "Arbitrageur": "Captures a fixed share of every bar's move, up or down, minus costs.",
+    "Arbitrageur": "Earns a share of every quiet move and loses on the big ones.",
     "Quant": "Half Momentum, half Contrarian.",
     "Whale": "Holds like a Swing with leverage: bigger wins, bigger drawdowns.",
 }

@@ -138,9 +138,11 @@ def test_the_row_and_cover_shape_a_losing_trade() -> None:
     exposed = score((3, 0))
     covered = score((3, 0), placed("Coupon Clerk", (0, 0)))
     front = score((0, 0))
-    assert exposed == pytest.approx(1.2 * (-10.05 - 0.5 * 12.5))
-    assert covered == pytest.approx(1.2 * (-10.05 - 0.5 * 7.5))
-    assert front == pytest.approx(0.8 * (-10.05 - 0.5 * 7.0))
+    penalty = DEFAULT_RULES.risk_penalty_tenths / 10
+    assert penalty == 0.3
+    assert exposed == pytest.approx(1.2 * (-10.05 - penalty * 12.5))
+    assert covered == pytest.approx(1.2 * (-10.05 - penalty * 7.5))
+    assert front == pytest.approx(0.8 * (-10.05 - penalty * 7.0))
     assert exposed < covered < front < 0
 
 

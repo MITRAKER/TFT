@@ -37,7 +37,9 @@ DIP = closes(100, 100, 99, 96, 97, 99, 101)
 
 def test_params_from_rules_and_scaling() -> None:
     assert PARAMS.stop == 2.0
-    assert PARAMS.leverage == 2.0
+    assert PARAMS.leverage == 1.5
+    assert (PARAMS.capture, PARAMS.quiet_move, PARAMS.adverse) == (25.0, 2.0, 50.0)
+    assert (PARAMS.scalp_threshold, PARAMS.hedge_premium) == (1.5, 1.0)
     scaled = PARAMS.scaled(8, 13)
     assert (scaled.stop, scaled.target) == (1.6, 5.2)
     assert Params.from_rules(Rules(stop_percent=3)).stop == 3.0
@@ -84,31 +86,45 @@ def test_reversion_buys_the_dip() -> None:
     assert reversion(RISING, PARAMS) == FLAT
 
 
-def test_scalp_trades_every_bar() -> None:
+def test_scalp_follows_big_bars_only() -> None:
     outcome = scalp(RISING, PARAMS)
-    assert outcome.trades == len(RISING) - 2
-    assert outcome.pnl > 0
-    assert scalp(closes(100, 101, 99, 102, 98), PARAMS).pnl < 0
+    assert outcome.trades == 3
+    assert outcome.pnl == pytest.approx(5.61, abs=0.01)
+    chop = scalp(closes(100, 102, 99, 102, 98), PARAMS)
+    assert chop.trades == 3
+    assert chop.pnl == pytest.approx(-chop.drawdown)
+    assert chop.pnl < -9
+    assert scalp(closes(100, 100.5, 101, 101.5), PARAMS) == FLAT
+    every_bar = Params.from_rules(Rules(scalp_threshold_tenths=0))
+    assert scalp(RISING, every_bar).trades == len(RISING) - 2
 
 
 def test_hedged_floors_the_loss() -> None:
     outcome = hedged(FALLING, PARAMS)
-    assert outcome.pnl == pytest.approx(-2.0 - 0.5)
-    assert outcome.drawdown <= 2.5
-    assert hedged(RISING, PARAMS).pnl == pytest.approx(10.0 - 0.05 - 0.5)
+    assert outcome.pnl == pytest.approx(-2.0 - 1.0)
+    assert outcome.drawdown <= 3.0
+    assert hedged(RISING, PARAMS).pnl == pytest.approx(10.0 - 0.05 - 1.0)
 
 
 def test_arbitrage_and_quant_and_whale() -> None:
     arb = arbitrage(FALLING, PARAMS)
     assert arb.trades == 6
-    assert arb.pnl > 0
+    assert arb.pnl == pytest.approx(2.06, abs=0.01)
+    quiet = arbitrage(closes(100, 101, 102, 103), PARAMS)
+    assert (quiet.trades, quiet.drawdown) == (3, 0.0)
+    assert quiet.pnl == pytest.approx(0.59, abs=0.01)
+    shock = arbitrage(closes(100, 110, 99), PARAMS)
+    assert shock.pnl == pytest.approx(-6.97, abs=0.01)
+    assert shock.drawdown == pytest.approx(6.97, abs=0.01)
+    with pytest.raises(ValueError, match="at least one bar"):
+        arbitrage([], PARAMS)
     combined = quant(RISING, PARAMS)
     assert combined.trades == 1
     assert combined.pnl == pytest.approx(breakout(RISING, PARAMS).pnl / 2)
     big = whale(RISING, PARAMS)
-    assert big.pnl == pytest.approx((10.0 - 0.05) * 2 - 0.1)
+    assert big.pnl == pytest.approx((10.0 - 0.05) * 1.5 - 0.075)
     assert whale(FALLING, PARAMS).drawdown == pytest.approx(
-        min(100, hold(FALLING, PARAMS).drawdown * 2)
+        min(100, hold(FALLING, PARAMS).drawdown * 1.5)
     )
 
 
