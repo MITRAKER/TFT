@@ -472,15 +472,21 @@ function renderTraits(seat) {
   if (seat.traits.length === 0) {
     list.append(el("li", { class: "muted", text: "Field units that share a market or a style." }));
   }
-  for (const trait of seat.traits) {
+  const progress = (trait) => {
     const next = trait.breakpoints.find((needed) => needed > trait.count);
-    const goal = next ? `${trait.count}/${next}` : `${trait.count}`;
+    return next ? `${trait.name} ${trait.count}/${next}` : `${trait.name} ${trait.count}`;
+  };
+  for (const trait of seat.traits.filter((one) => one.tier > 0)) {
     list.append(
-      el("li", { class: `trait${trait.tier > 0 ? " active" : ""}`, title: trait.summary }, [
-        el("span", { text: `${trait.name} ${goal}` }),
-        el("span", { class: trait.bonus ? "pos" : "muted", text: `+${trait.bonus}%` }),
+      el("li", { class: "trait active", title: trait.summary }, [
+        el("span", { text: progress(trait) }),
+        el("span", { class: "pos", text: `+${trait.bonus}%` }),
       ]),
     );
+  }
+  const waiting = seat.traits.filter((one) => one.tier === 0).map(progress);
+  if (waiting.length > 0) {
+    list.append(el("li", { class: "muted trait-rest", text: `Not active yet: ${waiting.join(", ")}` }));
   }
 }
 

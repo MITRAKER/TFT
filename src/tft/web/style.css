@@ -268,8 +268,9 @@ main {
 
 .chip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 8px 12px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -667,6 +668,10 @@ main {
   outline: 1px solid var(--accent);
 }
 
+.trait-rest {
+  font-size: 0.8rem;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -958,9 +963,9 @@ table.trades {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 18px;
+  top: 62px;
   z-index: 20;
-  transform: translate(-50%, 20px);
+  transform: translate(-50%, -20px);
   max-width: min(90vw, 560px);
   padding: 10px 16px;
   border-radius: 10px;
@@ -983,11 +988,22 @@ table.trades {
 /* Narrow screens ----------------------------------------------------------- */
 
 @media (max-width: 980px) {
+  /* One column: board and bench, then the shop right under them, then the side panels. */
   .arena {
-    grid-template-columns: minmax(0, 1fr);
+    display: contents;
+  }
+
+  .field {
+    order: 1;
+  }
+
+  .shop-bar {
+    order: 2;
+    position: static;
   }
 
   .side {
+    order: 3;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 }
