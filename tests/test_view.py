@@ -180,6 +180,7 @@ def test_match_state_for_a_seat_a_spectator_and_a_finished_match() -> None:
     assert "shop" not in state["others"][0]
     assert state["placements"] is None
     assert state["costs"] == {"reroll": 2, "xp": 4, "xp_gain": 4}
+    assert state["bench_size"] == 9
     watching = match_state(game, None)
     assert watching["seat"] is None
     assert [seat["name"] for seat in watching["others"]] == ["you", "ana", "bo"]

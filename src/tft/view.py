@@ -203,6 +203,7 @@ def match_state(game: Game, seat: str | None) -> Json:
         "round": round_view(game.current, game),
         "rounds_played": game.round_index,
         "board": board_view(rules),
+        "bench_size": rules.bench_size,
         "costs": {
             "reroll": rules.reroll_cost,
             "xp": rules.xp_purchase_cost,

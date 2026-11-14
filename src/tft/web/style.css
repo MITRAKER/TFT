@@ -463,12 +463,14 @@ main {
   --fill: #20305c;
 }
 
-.hex.covered {
-  --edge: var(--good);
-}
-
-.hex.exposed {
-  --edge: var(--bad);
+.hex.exposed .unit::after {
+  content: "!";
+  position: absolute;
+  top: 10%;
+  right: 28%;
+  color: var(--bad);
+  font-size: calc(var(--hex, 80px) * 0.2);
+  font-weight: 800;
 }
 
 .unit {
