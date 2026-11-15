@@ -11,6 +11,7 @@ from tft.combat import (
     CombatResult,
     MarketResolver,
     PowerResolver,
+    UnitTrade,
     board_score,
     board_trades,
     bootstrap_slice,
@@ -18,6 +19,7 @@ from tft.combat import (
     points,
     preview,
     preview_field,
+    result_factor,
     trade_unit,
     unit_symbol,
 )
@@ -46,6 +48,18 @@ def make_pack(origins: dict[str, tuple[str, ...]] = RISING) -> MarketPack:
     return MarketPack("test", "1d", "test", dates, origins, {"UP": up, "DOWN": down})
 
 
+def dip_pack() -> MarketPack:
+    """One symbol that dips two percent and ends one percent down."""
+    dates = tuple(f"2026-03-{day:02d}" for day in range(1, 13))
+    closes = (99.5, 99.0, 98.5, 98.0, 98.0, 98.5, 99.0, 99.0, 99.0, 99.0, 99.0, 99.0)
+    opens = (100.0, *closes[:-1])
+    pairs = zip(opens, closes, strict=True)
+    bars = tuple(Bar(o, max(o, c) + 0.1, min(o, c) - 0.1, c, 1) for o, c in pairs)
+    return MarketPack(
+        "dip", "1d", "test", dates, {"Commodities": ("DIP",)}, {"DIP": Series("DIP", bars)}
+    )
+
+
 def seat(name: str, *units: Unit) -> Player:
     player = Player(name, level=9)
     player.board = list(units)
@@ -64,6 +78,31 @@ def test_margin_result_records_both_sides_and_handles_ties() -> None:
     close = margin_result(home, away, -1.0, -3.0)
     assert (close.winner, close.loser, close.survivors) == ("h", "a", 1)
     assert margin_result(home, away, 0.0, 0.0).is_draw
+
+
+def test_survivors_are_the_share_of_the_score_not_needed_to_win() -> None:
+    four = seat("h", *(Unit(champion("Pip Squeak")) for _ in range(4)))
+    away = seat("a", Unit(champion("Index Drone")))
+    assert margin_result(four, away, 12.0, 9.0).survivors == 1
+    assert margin_result(four, away, 12.0, 6.0).survivors == 2
+    assert margin_result(four, away, 12.0, 3.0).survivors == 3
+    assert margin_result(four, away, 12.0, 0.0).survivors == 4
+    assert margin_result(four, away, 12.0, -30.0).survivors == 4
+    assert margin_result(four, away, 12.0, 11.9).survivors == 1
+    lost = margin_result(four, away, 3.0, 12.0)
+    assert (lost.winner, lost.survivors) == ("a", 1)
+
+
+def test_result_factor_is_bounded() -> None:
+    assert result_factor(0.0, DEFAULT_RULES) == 1.0
+    assert result_factor(2.5, DEFAULT_RULES) == pytest.approx(1.25)
+    assert result_factor(-4.0, DEFAULT_RULES) == pytest.approx(0.6)
+    assert result_factor(-10.0, DEFAULT_RULES) == 0.0
+    assert result_factor(-50.0, DEFAULT_RULES) == 0.0
+    assert result_factor(10.0, DEFAULT_RULES) == 2.0
+    assert result_factor(40.0, DEFAULT_RULES) == 2.0
+    assert result_factor(-50.0, Rules(result_weight=0)) == 1.0
+    assert result_factor(3.0, Rules(result_weight=20, result_cap_percent=150)) == 1.5
 
 
 def test_combat_result_knows_its_sides() -> None:
@@ -108,14 +147,15 @@ def test_trade_unit_scales_with_stars_and_items() -> None:
     first = trade_unit(alone, one, window, pack, DEFAULT_RULES, PARAMS)
     assert first.symbol == "UP"
     assert first.cell == (1, 3)
-    assert first.size == pytest.approx(0.9)
-    assert first.score == pytest.approx(0.9 * 9.95)
+    assert first.size == pytest.approx(0.95)
+    assert first.edge == pytest.approx(9.95)
+    assert first.score == pytest.approx(0.95 * 1.995)
     second = trade_unit(seat("p", two), two, window, pack, DEFAULT_RULES, PARAMS)
     assert second.score == pytest.approx(first.score * 1.8)
     block = craft(Component.VOLUME_FILTER, Component.VOLUME_FILTER)
     sized = Unit(champion("Barrel Bo"), items=[block], position=(1, 3))
     third = trade_unit(seat("p", sized), sized, window, pack, DEFAULT_RULES, PARAMS)
-    assert third.size == pytest.approx(1.2)
+    assert third.size == pytest.approx(1.25)
     assert third.unit == "Barrel Bo 1* [Block Trade]"
 
 
@@ -126,24 +166,43 @@ def test_trade_unit_needs_a_cell() -> None:
         trade_unit(seat("p", loose), loose, pack.window(0, 10), pack, DEFAULT_RULES, PARAMS)
 
 
-def test_the_row_and_cover_shape_a_losing_trade() -> None:
+def test_the_row_and_cover_shape_a_trade() -> None:
+    pack = dip_pack()
+    window = pack.window(0, 10)
+    penalty = DEFAULT_RULES.risk_penalty_tenths / 10
+
+    def trade(cell: tuple[int, int], *others: Unit) -> UnitTrade:
+        unit = placed("Barrel Bo", cell)
+        return trade_unit(seat("p", unit, *others), unit, window, pack, DEFAULT_RULES, PARAMS)
+
+    exposed = trade((3, 0))
+    covered = trade((3, 0), placed("Coupon Clerk", (0, 0)))
+    front = trade((0, 0))
+    assert exposed.outcome.pnl == pytest.approx(-1.05)
+    assert exposed.outcome.drawdown == pytest.approx(2.0)
+    assert penalty == 0.3
+    assert exposed.edge == pytest.approx(-1.05 - penalty * 2.0 * 1.5)
+    assert covered.edge == pytest.approx(-1.05 - penalty * 2.0 * 0.75)
+    assert front.edge == pytest.approx(-1.05 - penalty * 2.0 * 0.6)
+    assert (exposed.size, covered.size, front.size) == pytest.approx((1.1, 1.1, 0.9))
+    assert exposed.score == pytest.approx(1.1 * (1 + exposed.edge / 10))
+    assert covered.score == pytest.approx(1.1 * (1 + covered.edge / 10))
+    assert front.score == pytest.approx(0.9 * (1 + front.edge / 10))
+    assert front.score < exposed.score < covered.score < covered.size
+
+
+def test_a_wiped_out_unit_scores_nothing_and_never_less() -> None:
     pack = make_pack(FALLING)
     window = pack.window(0, 10)
-
-    def score(cell: tuple[int, int], *others: Unit) -> float:
-        unit = placed("Barrel Bo", cell)
-        player = seat("p", unit, *others)
-        return trade_unit(player, unit, window, pack, DEFAULT_RULES, PARAMS).score
-
-    exposed = score((3, 0))
-    covered = score((3, 0), placed("Coupon Clerk", (0, 0)))
-    front = score((0, 0))
-    penalty = DEFAULT_RULES.risk_penalty_tenths / 10
-    assert penalty == 0.3
-    assert exposed == pytest.approx(1.2 * (-10.05 - penalty * 12.5))
-    assert covered == pytest.approx(1.2 * (-10.05 - penalty * 7.5))
-    assert front == pytest.approx(0.8 * (-10.05 - penalty * 7.0))
-    assert exposed < covered < front < 0
+    unit = placed("Barrel Bo", (3, 0))
+    player = seat("p", unit)
+    trade = trade_unit(player, unit, window, pack, DEFAULT_RULES, PARAMS)
+    assert trade.edge == pytest.approx(-10.05 - 0.3 * 10.0 * 1.5)
+    assert trade.score == 0.0
+    assert board_score(player, window, pack, DEFAULT_RULES) == 0.0
+    assert board_score(seat("nobody"), window, pack, DEFAULT_RULES) == 0.0
+    helped = seat("p", placed("Barrel Bo", (3, 0)), placed("Gap Gazelle", (3, 1)))
+    assert board_score(helped, window, pack, DEFAULT_RULES) > 0.0
 
 
 def test_board_trades_gives_every_unit_a_cell_and_a_line() -> None:
@@ -151,7 +210,7 @@ def test_board_trades_gives_every_unit_a_cell_and_a_line() -> None:
     player = seat("p", Unit(champion("Barrel Bo")), Unit(champion("Coupon Clerk")))
     trades = board_trades(player, pack.window(0, 10), pack, DEFAULT_RULES)
     assert [trade.champion for trade in trades] == ["Barrel Bo", "Coupon Clerk"]
-    assert [unit.position for unit in player.board] == [(1, 3), (0, 3)]
+    assert [unit.position for unit in player.board] == [(0, 3), (1, 3)]
     assert trades[0].outcome.marks == ((0, "buy"), (9, "sell"))
 
 
@@ -160,13 +219,15 @@ def test_board_score_and_market_resolver() -> None:
     window = pack.window(0, 10)
     bull = seat("bull", Unit(champion("Barrel Bo")), Unit(champion("Coupon Clerk")))
     bear = seat("bear", Unit(champion("Vol Vampire")))
-    assert board_score(bull, window, pack, DEFAULT_RULES) > 0
-    assert board_score(bear, window, pack, DEFAULT_RULES) < 0
+    bull_score = board_score(bull, window, pack, DEFAULT_RULES)
+    assert bull_score == pytest.approx(0.9 * 1.995 + 0.95 * 1.895, abs=1e-4)
+    bear_score = board_score(bear, window, pack, DEFAULT_RULES)
+    assert bear_score == pytest.approx(2.2 * (1 - 0.19625), abs=1e-4)
     resolver = MarketResolver(pack)
     result = resolver.resolve(bull, bear, Random(0), CombatContext(ROUND, window))
     assert result.winner == "bull"
-    assert 1 <= result.survivors <= 2
-    assert result.score_of("bull") == board_score(bull, window, pack, DEFAULT_RULES)
+    assert result.survivors == 1
+    assert (result.score_of("bull"), result.score_of("bear")) == (bull_score, bear_score)
     with pytest.raises(ValueError, match="needs the round's slice"):
         resolver.resolve(bull, bear, Random(0), CombatContext(ROUND))
 

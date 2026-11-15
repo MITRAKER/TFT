@@ -87,12 +87,14 @@ class Rules:
     econ_reserve: int = 10
     board_rows: int = 4
     board_cols: int = 7
-    row_size_percent: tuple[int, ...] = (80, 90, 100, 120)
-    row_shield_percent: tuple[int, ...] = (30, 15, 0, 0)
+    row_size_percent: tuple[int, ...] = (90, 95, 100, 110)
+    row_shield_percent: tuple[int, ...] = (40, 20, 0, 0)
     cover_shield_percent: int = 25
-    exposed_penalty_percent: int = 25
+    exposed_penalty_percent: int = 50
     slice_bars: int = 10
     risk_penalty_tenths: int = 3
+    result_weight: int = 10
+    result_cap_percent: int = 200
     preview_samples: int = 200
     components_per_pve_round: int = 1
     max_items_per_unit: int = 3
@@ -155,6 +157,7 @@ class Rules:
                 "stop_percent",
                 "target_percent",
                 "whale_leverage_tenths",
+                "result_cap_percent",
             )
         }
         bad = sorted(name for name, value in positive.items() if value <= 0)
@@ -163,6 +166,7 @@ class Rules:
             raise ValueError(msg)
         signed = (
             "risk_penalty_tenths",
+            "result_weight",
             "components_per_pve_round",
             "trade_cost_bps",
             "reversion_threshold_tenths",

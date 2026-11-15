@@ -32,12 +32,13 @@ def test_column_order_runs_from_the_centre_outwards() -> None:
     assert column_order(1) == (0,)
 
 
-def test_preferred_rows_put_hedges_in_front_and_carries_at_the_back() -> None:
-    assert preferred_row("Hedger") == 0
-    assert preferred_row("Arbitrageur") == 0
-    assert preferred_row("Swing") == 1
-    assert preferred_row("Momentum") == 3
-    assert preferred_row("Whale") == 3
+def test_preferred_rows_put_deep_drawdowns_in_front_and_steady_classes_at_the_back() -> None:
+    assert preferred_row("Whale") == 0
+    assert preferred_row("Swing") == 0
+    assert preferred_row("Scalper") == 1
+    assert preferred_row("Hedger") == 1
+    for steady in ("Momentum", "Contrarian", "Quant", "Arbitrageur"):
+        assert preferred_row(steady) == 3
     assert (
         preferred_row(
             "Swing",
@@ -63,13 +64,14 @@ def test_row_order_prefers_the_row_then_its_neighbours_back_first() -> None:
 
 
 def test_default_cell_fills_the_preferred_row_then_spills_over() -> None:
-    assert default_cell("Hedger", set()) == (0, 3)
+    assert default_cell("Whale", set()) == (0, 3)
+    assert default_cell("Hedger", set()) == (1, 3)
     assert default_cell("Momentum", {(3, 3)}) == (3, 2)
     front_row = {(0, column) for column in range(7)}
-    assert default_cell("Hedger", front_row) == (1, 3)
+    assert default_cell("Whale", front_row) == (1, 3)
     everything = {(row, column) for row in range(4) for column in range(7)}
     with pytest.raises(Refusal, match="no free cell"):
-        default_cell("Hedger", everything)
+        default_cell("Whale", everything)
 
 
 def test_cover_and_back_half() -> None:
@@ -84,13 +86,13 @@ def test_cover_and_back_half() -> None:
 
 def test_position_effect_by_row_and_cover() -> None:
     front = position_effect((0, 3), set())
-    assert (front.size_percent, front.shield_percent) == (-20, 30)
+    assert (front.size_percent, front.shield_percent) == (-10, 40)
     middle = position_effect((1, 3), set())
-    assert (middle.size_percent, middle.shield_percent) == (-10, 15)
+    assert (middle.size_percent, middle.shield_percent) == (-5, 20)
     exposed = position_effect((3, 3), {(3, 3)})
-    assert (exposed.size_percent, exposed.shield_percent) == (20, -25)
+    assert (exposed.size_percent, exposed.shield_percent) == (10, -50)
     covered = position_effect((3, 3), {(3, 3), (0, 3)})
-    assert (covered.size_percent, covered.shield_percent) == (20, 25)
+    assert (covered.size_percent, covered.shield_percent) == (10, 25)
     third_row = position_effect((2, 1), {(1, 1)})
     assert (third_row.size_percent, third_row.shield_percent) == (0, 25)
     with pytest.raises(Refusal, match="rows"):

@@ -614,8 +614,8 @@ def test_fielding_places_units_by_class_and_accepts_a_cell() -> None:
     player.field_unit(clerk)
     player.field_unit(bull)
     player.field_unit(bo, (2, 5))
-    assert (clerk.position, bull.position, bo.position) == ((0, 3), (3, 3), (2, 5))
-    assert player.occupied() == {(0, 3), (3, 3), (2, 5)}
+    assert (clerk.position, bull.position, bo.position) == ((1, 3), (3, 3), (2, 5))
+    assert player.occupied() == {(1, 3), (3, 3), (2, 5)}
     assert player.unit_in((3, 3)) is bull
     assert player.unit_in((1, 1)) is None
     stray = Unit(PIP)
@@ -686,7 +686,7 @@ def test_ensure_positions_places_boards_built_directly() -> None:
     player = Player("tester", level=9)
     player.board = [Unit(PIP), Unit(champion("Coupon Clerk")), Unit(BULL, position=(2, 2))]
     player.ensure_positions()
-    assert [unit.position for unit in player.board] == [(3, 3), (0, 3), (2, 2)]
+    assert [unit.position for unit in player.board] == [(1, 3), (1, 2), (2, 2)]
     market = env.market_board(RoundId.make(3, 1))
     market.ensure_positions()
     assert len(market.occupied()) == len(market.board)

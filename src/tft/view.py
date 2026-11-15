@@ -192,6 +192,15 @@ def board_view(rules: Rules) -> Json:
     }
 
 
+def scoring_view(rules: Rules) -> Json:
+    """Return the numbers that turn a unit's trade into its score."""
+    return {
+        "penalty": rules.risk_penalty_tenths / TENTHS,
+        "weight": rules.result_weight,
+        "cap": rules.result_cap_percent,
+    }
+
+
 def match_state(game: Game, seat: str | None) -> Json:
     """Return the match as ``seat`` sees it, or as a spectator sees it when ``seat`` is ``None``."""
     rules, pack = game.rules, game.pack
@@ -278,4 +287,5 @@ def catalog(rules: Rules) -> Json:
         "items": [item_view(craft(first, second)) for first, second in pairs],
         "augments": [augment_view(augment) for augment in AUGMENTS],
         "board": board_view(rules),
+        "scoring": scoring_view(rules),
     }

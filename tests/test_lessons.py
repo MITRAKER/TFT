@@ -31,6 +31,8 @@ def line(**changes: Any) -> UnitLine:
         "pnl": 0.0,
         "drawdown": 0.0,
         "trades": 1,
+        "size": 1.0,
+        "edge": 0.0,
         "score": 0.0,
         "raw_move": 0.0,
         "closes": (100.0, 101.0, 102.0),
@@ -74,6 +76,16 @@ def test_empty_slots() -> None:
     assert lessons.empty_slots(facts(player)) is None
     player.board, player.bench = [Unit(PIP), Unit(BULL)], [Unit(CLERK)]
     assert lessons.empty_slots(facts(player)) is None
+
+
+def test_wiped_out_names_the_worst_unit_that_lost_its_size() -> None:
+    assert lessons.wiped_out(facts(units=(line(score=0.8), line(size=0.0, score=0.0)))) is None
+    gone = line(champion="Whale Watcher", symbol="LCID", pnl=-9.0, drawdown=12.0, edge=-14.4)
+    worse = line(champion="Barrel Bo", symbol="GE", pnl=-15.0, drawdown=15.0, edge=-21.75)
+    text = lessons.wiped_out(facts(units=(line(score=1.2), gone, worse)))
+    assert text is not None
+    assert text.startswith("Barrel Bo was wiped out on GE: a -15.0% result with a 15.0% drawdown")
+    assert "front" in text
 
 
 def test_stopped_out_tells_a_saving_stop_from_a_costly_one() -> None:
@@ -145,7 +157,7 @@ def test_exposed_carry() -> None:
     exposed = line(champion="Breakout Bull", cell=(3, 3), drawdown=2.0)
     text = lessons.exposed_carry(facts(player, (exposed,)))
     assert text is not None
-    assert "pays 25% more" in text
+    assert "pays 50% more" in text
     assert lessons.exposed_carry(facts(player, (line(cell=(3, 3), drawdown=0.0),))) is None
     player.board.append(Unit(CLERK, position=(0, 3)))
     assert lessons.exposed_carry(facts(player, (exposed,))) is None
@@ -220,13 +232,14 @@ def test_pick_lessons_keeps_the_first_three_in_priority_order() -> None:
     player = Player("you", level=2, health=20, gold=75, streak=-5)
     player.board, player.bench = [Unit(PIP, position=(3, 3))], [Unit(BULL)]
     player.components = [Component.STOP_ORDER] * 3
-    picked = pick_lessons(facts(player, (line(trades=9, pnl=-3.0, drawdown=4.0),)))
+    lost = line(trades=9, pnl=-3.0, drawdown=4.0, score=0.6)
+    picked = pick_lessons(facts(player, (lost,)))
     assert len(picked) == 3
     assert picked[0].startswith("You fielded 1 of 2 units")
     assert picked[1].startswith("Pip Squeak lost 3.0%")
     assert picked[2].startswith("Pip Squeak made 9 trades")
     assert pick_lessons(facts(Player("you"))) == ()
-    assert len(lessons.RULES) == 14
+    assert len(lessons.RULES) == 15
 
 
 def test_summarize_a_market_round() -> None:

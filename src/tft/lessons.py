@@ -59,6 +59,8 @@ class UnitLine:
     pnl: float
     drawdown: float
     trades: int
+    size: float
+    edge: float
     score: float
     raw_move: float
     closes: tuple[float, ...]
@@ -121,8 +123,21 @@ def empty_slots(facts: Facts) -> str | None:
         return None
     return (
         f"You fielded {len(player.board)} of {player.board_limit} units with "
-        f"{len(player.bench)} on the bench. An empty slot earns nothing: field your bench "
-        "before you fight."
+        f"{len(player.bench)} on the bench. An empty slot scores nothing and a fielded unit "
+        "can never lower your score: field your bench before you fight."
+    )
+
+
+def wiped_out(facts: Facts) -> str | None:
+    """A unit whose loss and drawdown took its whole size."""
+    gone = [line for line in facts.units if line.size > 0 and line.score <= 0]
+    if not gone:
+        return None
+    line = min(gone, key=lambda one: one.edge)
+    return (
+        f"{line.champion} was wiped out on {line.symbol}: a {line.pnl:+.1f}% result with a "
+        f"{line.drawdown:.1f}% drawdown took its whole size. Size down what swings: the front "
+        "rows trade smaller and forgive part of the drawdown, and a stop caps the loss."
     )
 
 
@@ -209,7 +224,7 @@ def never_traded(facts: Facts) -> str | None:
     line = idle[0]
     return (
         f"{line.champion} never traded: {line.symbol} gave its {line.role} strategy no signal "
-        "on this slice. Staying flat is a position too, and it cost nothing."
+        "on this slice. Staying flat is a position too: it kept its size and paid no costs."
     )
 
 
@@ -330,6 +345,7 @@ def streak(facts: Facts) -> str | None:
 
 RULES: tuple[Rule, ...] = (
     empty_slots,
+    wiped_out,
     stopped_out,
     took_profit,
     hedge_paid,
@@ -380,6 +396,8 @@ def line_for(unit: Unit, trade: UnitTrade, bars: tuple[Bar, ...]) -> UnitLine:
         round(outcome.pnl, DECIMALS),
         round(outcome.drawdown, DECIMALS),
         outcome.trades,
+        round(trade.size, DECIMALS),
+        round(trade.edge, DECIMALS),
         round(trade.score, DECIMALS),
         round(raw_move, DECIMALS),
         normalised(bars),

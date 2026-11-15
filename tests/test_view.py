@@ -23,6 +23,7 @@ from tft.view import (
     public_seat,
     report_view,
     round_view,
+    scoring_view,
     shop_view,
     summary_view,
     trait_views,
@@ -162,11 +163,12 @@ def test_round_and_board_views() -> None:
     assert board_view(DEFAULT_RULES) == {
         "rows": 4,
         "cols": 7,
-        "row_size": [80, 90, 100, 120],
-        "row_shield": [30, 15, 0, 0],
+        "row_size": [90, 95, 100, 110],
+        "row_shield": [40, 20, 0, 0],
         "cover": 25,
-        "exposed": 25,
+        "exposed": 50,
     }
+    assert scoring_view(DEFAULT_RULES) == {"penalty": 0.3, "weight": 10, "cap": 200}
 
 
 def test_match_state_for_a_seat_a_spectator_and_a_finished_match() -> None:
@@ -247,4 +249,5 @@ def test_catalog_lists_the_static_content() -> None:
     }
     assert content["champions"][0]["text"]
     assert content["board"]["rows"] == 4
+    assert content["scoring"] == {"penalty": 0.3, "weight": 10, "cap": 200}
     assert json.loads(json.dumps(content)) == content

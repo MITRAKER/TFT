@@ -86,14 +86,18 @@ class CombatResolver(Protocol):
 
 
 def margin_result(home: Player, away: Player, home_score: float, away_score: float) -> CombatResult:
-    """Turn two scores into a result: the higher wins, survivors scale with the margin."""
+    """Turn two scores into a result: the higher wins, survivors scale with the margin.
+
+    The margin is the share of the winning score that was not needed to win:
+    a board that scores 12 against 9 keeps a quarter of its units, one that
+    scores 12 against nothing keeps them all. At least one unit survives.
+    """
     sides = (home.name, away.name, home_score, away_score)
     if home_score == away_score:
         return CombatResult(None, None, 0, *sides)
     winner, loser = (home, away) if home_score > away_score else (away, home)
     strong, weak = max(home_score, away_score), min(home_score, away_score)
-    spread = abs(strong) + abs(weak)
-    fraction = (strong - weak) / spread if spread else 1.0
+    fraction = min(1.0, (strong - weak) / max(abs(strong), abs(weak)))
     survivors = max(1, round(len(winner.board) * fraction))
     return CombatResult(winner.name, loser.name, survivors, *sides)
 
@@ -110,7 +114,11 @@ class PowerResolver:
 
 @dataclass(frozen=True)
 class UnitTrade:
-    """What one unit did on a slice: its symbol, its cell, the outcome, its size and its score."""
+    """What one unit did on a slice.
+
+    ``size`` is what the unit brought to the fight, ``edge`` its risk-adjusted
+    return in percent, and ``score`` what the size became after the trade.
+    """
 
     unit: str
     champion: str
@@ -120,6 +128,7 @@ class UnitTrade:
     cell: Cell
     outcome: Outcome
     size: float
+    edge: float
     score: float
 
 
@@ -129,14 +138,27 @@ def unit_symbol(pack: MarketPack, origin: str, column: int) -> str:
     return symbols[column % len(symbols)]
 
 
+def result_factor(edge: float, rules: Rules) -> float:
+    """Return what a risk-adjusted return of ``edge`` percent multiplies a unit's size by.
+
+    A flat round keeps the size; each percent of edge adds or removes
+    ``rules.result_weight`` percent of it, down to nothing (the unit is wiped
+    out) and up to ``rules.result_cap_percent`` percent. The factor is never
+    negative, so fielding a unit can never lower a board's score.
+    """
+    factor = PERCENT + rules.result_weight * edge
+    return min(max(factor, 0.0), float(rules.result_cap_percent)) / PERCENT
+
+
 def trade_unit(
     player: Player, unit: Unit, market: Slice, pack: MarketPack, rules: Rules, params: Params
 ) -> UnitTrade:
     """Run ``unit``'s strategy on the slice and score it.
 
-    The score is the profit minus the penalised drawdown, times the unit's size.
-    Items and the cell tighten or widen the stop and target, change the size,
-    and shield part of the drawdown from the penalty (or expose it to more).
+    The edge is the profit minus the penalised drawdown; the score is the
+    unit's size times :func:`result_factor` of that edge. Items and the cell
+    tighten or widen the stop and target, change the size, and shield part of
+    the drawdown from the penalty (or expose it to more).
 
     Raises:
         ValueError: If the unit has no cell; call ``player.ensure_positions()`` first.
@@ -152,9 +174,10 @@ def trade_unit(
     outcome = strategy_for(role)(market.bars[symbol], scaled)
     size = unit.power(rules) / TENTHS * max(0, PERCENT + effect.size_percent) / PERCENT
     shielded = outcome.drawdown * max(0, PERCENT - effect.shield_percent) / PERCENT
-    score = size * (outcome.pnl - rules.risk_penalty_tenths / TENTHS * shielded)
+    edge = outcome.pnl - rules.risk_penalty_tenths / TENTHS * shielded
+    score = size * result_factor(edge, rules)
     name = unit.champion.name
-    return UnitTrade(unit.describe(), name, role, origin, symbol, cell, outcome, size, score)
+    return UnitTrade(unit.describe(), name, role, origin, symbol, cell, outcome, size, edge, score)
 
 
 def board_trades(player: Player, market: Slice, pack: MarketPack, rules: Rules) -> list[UnitTrade]:
