@@ -23,6 +23,15 @@ export function percent(value, max) {
   return Math.max(0, Math.min(100, Math.round((value / max) * 100)));
 }
 
+/** The tone of a health bar: "high" above 60 percent, "mid" above 30, otherwise "low". */
+export function healthTone(health, max) {
+  const share = percent(health, max);
+  if (share > 60) {
+    return "high";
+  }
+  return share > 30 ? "mid" : "low";
+}
+
 /** How many interest pips `gold` lights, out of INTEREST_CAP. */
 export function interestPips(gold) {
   return Math.max(0, Math.min(INTEREST_CAP, Math.floor(gold / INTEREST_STEP)));

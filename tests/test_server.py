@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
+from importlib.resources import files
 from typing import Any
 
 import pytest
 
 from tft import __version__
+from tft.items import Component
 from tft.name import GAME_NAME
+from tft.roster import CHAMPIONS, TRAITS
 from tft.rules import Rules
 from tft.server import (
     MAX_BODY,
     SEAT,
+    STATIC,
     Api,
     ApiError,
     GameServer,
@@ -313,18 +318,26 @@ def test_delete_and_unknown_routes(api: Api) -> None:
 
 
 def test_static_files(api: Api) -> None:
+    script = "text/javascript; charset=utf-8"
     expected = {
         "/": "text/html; charset=utf-8",
         "/index.html": "text/html; charset=utf-8",
-        "/app.js": "text/javascript; charset=utf-8",
-        "/logic.js": "text/javascript; charset=utf-8",
+        "/app.js": script,
+        "/logic.js": script,
+        "/art.js": script,
+        "/dom.js": script,
+        "/pieces.js": script,
+        "/scene.js": script,
         "/style.css": "text/css; charset=utf-8",
         "/favicon.svg": "image/svg+xml",
     }
+    assert {path: kind for path, (_, kind) in STATIC.items()} == expected
     for path, content_type in expected.items():
         response = api.handle("GET", path)
         assert (int(response.status), response.content_type) == (200, content_type)
         assert response.body
+    packaged = {entry.name for entry in files("tft").joinpath("web").iterdir() if entry.is_file()}
+    assert {name for name, _ in STATIC.values()} == packaged
     assert api.handle("GET", "/?seed=3").status == 200
     page = api.handle("GET", "/").body.decode("utf-8")
     assert f"<title>{GAME_NAME}</title>" in page
@@ -332,6 +345,19 @@ def test_static_files(api: Api) -> None:
     assert api.handle("GET", "/../pyproject.toml").status == 404
     assert api.handle("GET", "/nope.js").status == 404
     assert api.handle("POST", "/app.js").status == 405
+
+
+def test_the_art_covers_the_roster_the_traits_and_the_components(api: Api) -> None:
+    art = api.handle("GET", "/art.js").body.decode("utf-8")
+    names = [champion.name for champion in CHAMPIONS]
+    names += list(TRAITS)
+    names += [str(component) for component in Component]
+    missing = [
+        name
+        for name in names
+        if not re.search(rf'^  "?{re.escape(name)}"?: \[', art, flags=re.MULTILINE)
+    ]
+    assert missing == []
 
 
 # The lobby --------------------------------------------------------------------

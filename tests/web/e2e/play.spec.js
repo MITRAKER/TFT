@@ -32,7 +32,8 @@ async function buyAndField(page) {
   const [fielded, limit] = (await page.locator("#board-count").textContent()).split("/").map(Number);
   if (fielded < limit && (await page.locator("#bench .slot.occupied").count()) > 0) {
     await page.locator("#bench .slot.occupied").first().click();
-    await page.locator('#board .hex[data-row="3"]:not(.occupied)').first().click();
+    await expect(page.locator("#board")).toHaveClass(/targeting/);
+    await page.locator('#board .hex[data-row="3"]:not(.occupied) .tile').first().click();
     await expect(page.locator("#toast")).toContainText("fielded");
   }
 }
@@ -82,9 +83,59 @@ test("the first round shows the trade, the lessons and the market slice", async 
   await page.click("#btn-fight");
   await expect(page.locator("#dialog-body")).toContainText("market slice");
   await expect(page.locator("#dialog-body table.trades tbody tr")).toHaveCount(1);
-  await expect(page.locator("#dialog-body svg.spark polyline")).toHaveCount(1);
+  await expect(page.locator("#dialog-body table.trades svg.spark .spark-line")).toHaveCount(1);
+  await expect(page.locator("#dialog-body table.trades tbody td").nth(7)).toHaveText(/%|wiped out/);
+  await expect(page.locator("#dialog-body .other-board table.theirs tbody tr")).toHaveCount(2);
   await expect(page.locator("#dialog-body .move")).toHaveCount(6);
   await expect(page.locator("#dialog-body .fights li").first()).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("the table shows the stage, the players and original art for every unit", async ({ page }) => {
+  const problems = watchForProblems(page);
+  await page.goto("/");
+  await expect(page.locator("#showcase .token svg.art")).toHaveCount(25);
+  await startMatch(page, { seed: 5, bots: 7 });
+  await expect(page.locator("#stage .round")).toHaveCount(3);
+  await expect(page.locator("#stage .round.current")).toHaveText("1-1");
+  await expect(page.locator("#rivals .rival")).toHaveCount(8);
+  await expect(page.locator("#rivals .rival.me")).toContainText("You");
+  await expect(page.locator("#shop .card .card-art svg.art")).toHaveCount(5);
+  await buyAndField(page);
+  await expect(page.locator("#board .hex.occupied .token .disc svg.art")).toHaveCount(1);
+  await page.locator("#board .hex.occupied .token").click();
+  await expect(page.locator("#detail")).toContainText("Sell");
+  await page.locator("#rivals .rival:not(.me)").first().click();
+  await expect(page.locator("#dialog-body .board.mini")).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  expect(problems).toEqual([]);
+});
+
+test("a fight plays as a scene with both boards before the result", async ({ page }) => {
+  const problems = watchForProblems(page);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await startMatch(page, { seed: 9, bots: 7 });
+  await buyAndField(page);
+  await page.click("#btn-fight");
+  await expect(page.locator("#theatre")).toBeVisible();
+  await expect(page.locator("#scene-caption")).toContainText("Round 1-1: You against The Market");
+  await expect(page.locator("#scene-mine .hex.occupied .token")).toHaveCount(1);
+  await expect(page.locator("#scene-enemy .hex.occupied .token")).toHaveCount(2);
+  await expect(page.locator("#scene-mine .token .trace .spark-line")).toBeVisible();
+  await expect(page.locator("#scene-floor")).toHaveAttribute("data-phase", "resolved");
+  await expect(page.locator("#scene-mine .token .verdict")).toHaveText(/%|wiped out/);
+  await expect(page.locator("#banner")).toBeVisible();
+  await expect(page.locator("#banner .banner-word")).toHaveText(/Victory|Defeat|Draw/);
+  await expect(page.locator("#dialog-actions button.primary")).toBeVisible();
+  await expect(page.locator("#theatre")).toBeHidden();
+  await page.locator("#dialog-actions button.primary").click();
+
+  await buyAndField(page);
+  await page.click("#btn-fight");
+  await expect(page.locator("#theatre")).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#theatre")).toBeHidden();
+  await expect(page.locator("#dialog-actions button.primary")).toBeVisible();
   expect(problems).toEqual([]);
 });
 

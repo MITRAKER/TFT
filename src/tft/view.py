@@ -188,8 +188,11 @@ def round_progress(index: int, played: int, *, finished: bool) -> str:
 
 
 def stage_view(game: Game) -> list[Json]:
-    """Return the rounds of the stage the match is in, each with its events and its progress."""
-    played = game.round_index
+    """Return the rounds of the stage the match is in, each with its events and its progress.
+
+    The round that is open for planning, or else the next one to start, is ``current``.
+    """
+    played = game.round_index - (1 if game.current is not None else 0)
     focus = game.rounds[min(played, len(game.rounds) - 1)]
     return [
         {

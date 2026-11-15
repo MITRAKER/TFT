@@ -179,7 +179,9 @@ def test_stage_view_tracks_the_rounds_of_the_current_stage() -> None:
     assert [entry["label"] for entry in opening] == ["1-1", "1-2", "1-3"]
     assert [entry["state"] for entry in opening] == ["current", "ahead", "ahead"]
     assert all(entry["pve"] for entry in opening)
-    _ = game.step()
+    _ = game.start_round()
+    assert [entry["state"] for entry in stage_view(game)] == ["current", "ahead", "ahead"]
+    _ = game.finish_round()
     assert [entry["state"] for entry in stage_view(game)] == ["done", "current", "ahead"]
     for _ in range(2):
         _ = game.step()

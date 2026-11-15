@@ -8,6 +8,7 @@ import {
   cellEffect,
   fightText,
   headline,
+  healthTone,
   interestPips,
   isCovered,
   nextStep,
@@ -161,7 +162,7 @@ function traitChip(name) {
 }
 
 function healthBar(seat) {
-  const fill = el("span", { class: "fill hp" });
+  const fill = el("span", { class: `fill hp ${healthTone(seat.health, seat.max_health)}` });
   fill.style.setProperty("--amount", `${percent(seat.health, seat.max_health)}%`);
   return el("span", { class: "bar" }, [fill]);
 }
@@ -350,8 +351,6 @@ function renderStage(state) {
     const current = round.state === "current" ? "step" : null;
     list.append(el("li", { class: `round ${round.state} ${kind}`, title, "aria-current": current }, marks));
   }
-  $("phase").textContent =
-    state.phase === "finished" ? "The match is over" : "Planning: buy, place, then fight";
 }
 
 function renderTape(state) {
@@ -376,6 +375,7 @@ function actionLabel(node, glyph, text, cost) {
 
 function renderHud(state) {
   const { seat, costs } = state;
+  $("hp-fill").className = `fill hp ${healthTone(seat.health, seat.max_health)}`;
   $("hp-fill").style.setProperty("--amount", `${percent(seat.health, seat.max_health)}%`);
   $("hp-text").textContent = String(seat.health);
   $("gold").textContent = String(seat.gold);
@@ -601,7 +601,11 @@ function unitDetail(state, unit) {
       el("span", { class: "detail-traits" }, [traitChip(unit.origin), traitChip(unit.role), coins(unit.cost)]),
     ]),
   ]);
-  const lines = [head, el("span", { text: strategy })];
+  const actions = [button(`Sell (+${unit.sell} gold)`, () => act("sell", [unit.index]))];
+  if (unit.cell) {
+    actions.push(button("Bench", () => act("bench", [unit.index])));
+  }
+  const lines = [head, el("span", { class: "row" }, actions), el("span", { text: strategy })];
   if (champion) {
     lines.push(el("span", { class: "muted", text: `${champion.ability}: ${champion.text}` }));
   }
@@ -613,11 +617,6 @@ function unitDetail(state, unit) {
   for (const item of unit.items) {
     lines.push(el("span", { class: "muted", text: `${item.name}: ${item.effect}` }));
   }
-  const actions = [button(`Sell (+${unit.sell} gold)`, () => act("sell", [unit.index]))];
-  if (unit.cell) {
-    actions.push(button("Bench", () => act("bench", [unit.index])));
-  }
-  lines.push(el("span", { class: "row" }, actions));
   return lines;
 }
 

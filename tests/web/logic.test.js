@@ -2,24 +2,33 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  bannerOf,
   cellEffect,
+  factorOf,
   fightText,
   headline,
+  healthTone,
   hexRows,
   initials,
   interestPips,
   isCovered,
+  mirrorCell,
   nextStep,
   oddsText,
   ordinal,
   percent,
+  resultLabel,
+  resultTone,
+  roundKind,
   signed,
   sparkline,
+  standings,
   streakText,
+  traitSteps,
   unitAt,
 } from "../../src/tft/web/logic.js";
 
-const BOARD = { rows: 4, cols: 7, row_size: [80, 90, 100, 120], row_shield: [30, 15, 0, 0], cover: 25, exposed: 25 };
+const BOARD = { rows: 4, cols: 7, row_size: [90, 95, 100, 110], row_shield: [40, 20, 0, 0], cover: 25, exposed: 50 };
 const UNITS = [
   { index: 0, name: "Coupon Clerk", cell: [0, 3] },
   { index: 1, name: "Breakout Bull", cell: [3, 3] },
@@ -109,11 +118,102 @@ describe("the board", () => {
   });
 
   it("describes what a cell does", () => {
-    assert.equal(cellEffect(BOARD, UNITS, 0, 3), "size 80%, absorbs 30% of drawdowns");
-    assert.equal(cellEffect(BOARD, UNITS, 1, 1), "size 90%, absorbs 15% of drawdowns");
-    assert.equal(cellEffect(BOARD, UNITS, 3, 3), "size 120%, covered: absorbs 25% more");
-    assert.equal(cellEffect(BOARD, UNITS, 3, 0), "size 120%, exposed: drawdowns weigh 25% more");
-    assert.equal(cellEffect(BOARD, UNITS, 2, 6), "size 100%, exposed: drawdowns weigh 25% more");
+    assert.equal(cellEffect(BOARD, UNITS, 0, 3), "size 90%, forgives 40% of drawdowns");
+    assert.equal(cellEffect(BOARD, UNITS, 1, 1), "size 95%, forgives 20% of drawdowns");
+    assert.equal(cellEffect(BOARD, UNITS, 3, 3), "size 110%, covered: forgives 25% of drawdowns");
+    assert.equal(cellEffect(BOARD, UNITS, 3, 0), "size 110%, exposed: drawdowns weigh 50% more");
+    assert.equal(cellEffect(BOARD, UNITS, 2, 6), "size 100%, exposed: drawdowns weigh 50% more");
+  });
+
+  it("turns the opposing board around", () => {
+    assert.deepEqual(mirrorCell(BOARD, 0, 0), [3, 6]);
+    assert.deepEqual(mirrorCell(BOARD, 3, 6), [0, 0]);
+    assert.deepEqual(mirrorCell(BOARD, 1, 3), [2, 3]);
+  });
+});
+
+describe("the fight scene", () => {
+  const line = (size, score) => ({ size, score });
+
+  it("measures what a trade did to a unit's size", () => {
+    assert.equal(factorOf(line(2, 3)), 1.5);
+    assert.equal(factorOf(line(2, 0)), 0);
+    assert.equal(factorOf(line(0, 0)), 0);
+  });
+
+  it("names the result of a unit", () => {
+    assert.deepEqual(
+      [line(2, 2.76), line(2, 1.48), line(2, 2.004), line(2, 0), line(0, 0)].map(resultTone),
+      ["up", "down", "flat", "out", "flat"],
+    );
+    assert.deepEqual(
+      [line(2, 2.76), line(2, 1.48), line(2, 2.004), line(2, 0), line(1, 2)].map(resultLabel),
+      ["+38%", "-26%", "0%", "wiped out", "+100%"],
+    );
+  });
+
+  it("writes the banner", () => {
+    const base = { opponent: "ana", score: 12.34, opponent_score: 9.1, damage: 7 };
+    assert.deepEqual(bannerOf({ ...base, outcome: "won" }), {
+      word: "Victory",
+      tone: "won",
+      scores: "12.3 to 9.1",
+      cost: "",
+    });
+    assert.deepEqual(bannerOf({ ...base, outcome: "lost" }), {
+      word: "Defeat",
+      tone: "lost",
+      scores: "12.3 to 9.1",
+      cost: "-7 health",
+    });
+    assert.equal(bannerOf({ ...base, outcome: "lost", damage: 0 }).cost, "");
+    assert.equal(bannerOf({ ...base, outcome: "draw" }).word, "Draw");
+    assert.deepEqual(bannerOf({ ...base, outcome: "none" }), {
+      word: "No fight",
+      tone: "none",
+      scores: "",
+      cost: "",
+    });
+  });
+});
+
+describe("the table", () => {
+  it("orders the scoreboard", () => {
+    const you = { name: "you", health: 70, alive: true };
+    const others = [
+      { name: "bo", health: 90, alive: true },
+      { name: "ana", health: 90, alive: true },
+      { name: "cy", health: 0, alive: false },
+    ];
+    const rows = standings(you, others);
+    assert.deepEqual(rows.map((row) => row.name), ["ana", "bo", "you", "cy"]);
+    assert.deepEqual(rows.map((row) => row.me), [false, false, true, false]);
+    assert.deepEqual(standings(null, others).map((row) => row.name), ["ana", "bo", "cy"]);
+    assert.equal(others[0].me, undefined);
+  });
+
+  it("names the kind of a round", () => {
+    assert.equal(roundKind({ pve: false, carousel: false }), "fight");
+    assert.equal(roundKind({ pve: true, carousel: false }), "market");
+    assert.equal(roundKind({ pve: false, carousel: true }), "carousel");
+    assert.equal(roundKind({ pve: true, carousel: true }), "carousel");
+  });
+
+  it("marks the breakpoints a trait has reached", () => {
+    assert.deepEqual(traitSteps({ breakpoints: [2, 4, 6], count: 4 }), [
+      { needed: 2, reached: true },
+      { needed: 4, reached: true },
+      { needed: 6, reached: false },
+    ]);
+    assert.deepEqual(traitSteps({ breakpoints: [1], count: 0 }), [{ needed: 1, reached: false }]);
+  });
+
+  it("tones a health bar", () => {
+    assert.deepEqual(
+      [100, 61, 60, 31, 30, 0].map((health) => healthTone(health, 100)),
+      ["high", "high", "mid", "mid", "low", "low"],
+    );
+    assert.equal(healthTone(5, 0), "low");
   });
 });
 

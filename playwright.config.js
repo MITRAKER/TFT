@@ -12,6 +12,8 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     trace: "retain-on-failure",
+    // The fight scene is skipped when the player asks for less motion; one test turns it back on.
+    reducedMotion: "reduce",
   },
   webServer: {
     command: `python -m tft serve --port ${port} --rules tests/web/e2e/short-rules.toml`,
