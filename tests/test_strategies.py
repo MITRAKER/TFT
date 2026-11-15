@@ -38,7 +38,7 @@ DIP = closes(100, 100, 99, 96, 97, 99, 101)
 def test_params_from_rules_and_scaling() -> None:
     assert PARAMS.stop == 2.0
     assert PARAMS.leverage == 1.5
-    assert (PARAMS.capture, PARAMS.quiet_move, PARAMS.adverse) == (25.0, 2.0, 50.0)
+    assert (PARAMS.capture, PARAMS.quiet_move, PARAMS.adverse) == (20.0, 2.0, 50.0)
     assert (PARAMS.scalp_threshold, PARAMS.hedge_premium) == (1.5, 1.0)
     scaled = PARAMS.scaled(8, 13)
     assert (scaled.stop, scaled.target) == (1.6, 5.2)
@@ -109,13 +109,13 @@ def test_hedged_floors_the_loss() -> None:
 def test_arbitrage_and_quant_and_whale() -> None:
     arb = arbitrage(FALLING, PARAMS)
     assert arb.trades == 6
-    assert arb.pnl == pytest.approx(2.06, abs=0.01)
+    assert arb.pnl == pytest.approx(1.54, abs=0.01)
     quiet = arbitrage(closes(100, 101, 102, 103), PARAMS)
     assert (quiet.trades, quiet.drawdown) == (3, 0.0)
-    assert quiet.pnl == pytest.approx(0.59, abs=0.01)
+    assert quiet.pnl == pytest.approx(0.44, abs=0.01)
     shock = arbitrage(closes(100, 110, 99), PARAMS)
-    assert shock.pnl == pytest.approx(-6.97, abs=0.01)
-    assert shock.drawdown == pytest.approx(6.97, abs=0.01)
+    assert shock.pnl == pytest.approx(-7.17, abs=0.01)
+    assert shock.drawdown == pytest.approx(7.17, abs=0.01)
     with pytest.raises(ValueError, match="at least one bar"):
         arbitrage([], PARAMS)
     combined = quant(RISING, PARAMS)

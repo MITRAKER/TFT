@@ -106,7 +106,7 @@ class Rules:
     hedge_floor_percent: int = 2
     hedge_premium_tenths: int = 10
     whale_leverage_tenths: int = 15
-    arb_capture_percent: int = 25
+    arb_capture_percent: int = 20
     arb_quiet_move_tenths: int = 20
     arb_adverse_percent: int = 50
     scalp_threshold_tenths: int = 15
