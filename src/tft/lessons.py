@@ -17,7 +17,16 @@ from dataclasses import dataclass
 
 from tft.combat import CombatResult, UnitTrade, board_trades
 from tft.economy import streak_bonus
-from tft.environment import Game, Player, RoundId, RoundReport, Unit, stage_damage
+from tft.environment import (
+    MARKET,
+    Game,
+    Player,
+    RoundId,
+    RoundReport,
+    Unit,
+    market_board,
+    stage_damage,
+)
 from tft.formation import Cell, is_back_half, is_covered
 from tft.market import Bar, Slice
 from tft.strategies import Mark
@@ -51,6 +60,8 @@ class UnitLine:
 
     unit: str
     champion: str
+    cost: int
+    star: int
     role: str
     origin: str
     symbol: str
@@ -88,7 +99,7 @@ class UnitLine:
 
 @dataclass(frozen=True)
 class RoundSummary:
-    """A seat's round: the fight, the per-unit lines, the origins' moves and the lessons."""
+    """A seat's round: the fight, both boards' unit lines, the origins' moves and the lessons."""
 
     round_label: str
     slice_label: str | None
@@ -100,6 +111,7 @@ class RoundSummary:
     units: tuple[UnitLine, ...]
     origin_moves: tuple[tuple[str, float], ...]
     lessons: tuple[str, ...]
+    opponent_units: tuple[UnitLine, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -388,6 +400,8 @@ def line_for(unit: Unit, trade: UnitTrade, bars: tuple[Bar, ...]) -> UnitLine:
     return UnitLine(
         trade.unit,
         trade.champion,
+        unit.champion.cost,
+        unit.star,
         trade.role,
         trade.origin,
         trade.symbol,
@@ -413,6 +427,14 @@ def unit_lines(game: Game, player: Player) -> tuple[UnitLine, ...]:
     trades = board_trades(player, market, game.pack, game.rules)
     pairs = zip(player.board, trades, strict=True)
     return tuple(line_for(unit, trade, market.bars[trade.symbol]) for unit, trade in pairs)
+
+
+def opponent_lines(game: Game, opponent: str | None, round_id: RoundId) -> tuple[UnitLine, ...]:
+    """Return the lines of the board ``opponent`` fought with: a seat's or the Market's."""
+    if opponent == MARKET:
+        return unit_lines(game, market_board(round_id, game.rules))
+    seats = [player for player in game.players if player.name == opponent]
+    return unit_lines(game, seats[0]) if seats else ()
 
 
 def origin_moves(game: Game, market: Slice | None) -> tuple[tuple[str, float], ...]:
@@ -469,4 +491,5 @@ def summarize(game: Game, name: str, report: RoundReport) -> RoundSummary:
         units,
         origin_moves(game, game.slice),
         pick_lessons(facts),
+        opponent_lines(game, opponent, report.round_id),
     )

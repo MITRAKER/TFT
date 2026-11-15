@@ -22,9 +22,11 @@ from tft.view import (
     private_seat,
     public_seat,
     report_view,
+    round_progress,
     round_view,
     scoring_view,
     shop_view,
+    stage_view,
     summary_view,
     trait_views,
     unit_view,
@@ -171,6 +173,34 @@ def test_round_and_board_views() -> None:
     assert scoring_view(DEFAULT_RULES) == {"penalty": 0.3, "weight": 10, "cap": 200}
 
 
+def test_stage_view_tracks_the_rounds_of_the_current_stage() -> None:
+    game = Game(["you", "ana"], seed=1)
+    opening = stage_view(game)
+    assert [entry["label"] for entry in opening] == ["1-1", "1-2", "1-3"]
+    assert [entry["state"] for entry in opening] == ["current", "ahead", "ahead"]
+    assert all(entry["pve"] for entry in opening)
+    _ = game.step()
+    assert [entry["state"] for entry in stage_view(game)] == ["done", "current", "ahead"]
+    for _ in range(2):
+        _ = game.step()
+    second = stage_view(game)
+    assert second[0] == {
+        "label": "2-1",
+        "pve": False,
+        "carousel": False,
+        "augment": True,
+        "state": "current",
+    }
+    assert [entry["label"] for entry in second if entry["carousel"]] == ["2-4"]
+    assert [entry["label"] for entry in second if entry["pve"]] == ["2-7"]
+    assert (round_progress(3, 3, finished=True), round_progress(4, 3, finished=False)) == (
+        "ahead",
+        "ahead",
+    )
+    _ = game.run()
+    assert "current" not in [entry["state"] for entry in stage_view(game)]
+
+
 def test_match_state_for_a_seat_a_spectator_and_a_finished_match() -> None:
     game = Game(["you", "ana", "bo"], seed=3, pack=load_builtin(), policies={"you": None})
     _ = game.start_round()
@@ -233,7 +263,9 @@ def test_summary_view_is_plain_data() -> None:
         "units",
         "origin_moves",
         "lessons",
+        "opponent_units",
     }
+    assert {"cost", "star", "size", "edge", "score"} <= set(view["units"][0])
 
 
 def test_catalog_lists_the_static_content() -> None:

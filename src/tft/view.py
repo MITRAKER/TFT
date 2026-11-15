@@ -180,6 +180,30 @@ def round_view(round_id: RoundId | None, game: Game) -> Json | None:
     }
 
 
+def round_progress(index: int, played: int, *, finished: bool) -> str:
+    """Return ``done``, ``current`` or ``ahead`` for round ``index`` once ``played`` are over."""
+    if index < played:
+        return "done"
+    return "current" if index == played and not finished else "ahead"
+
+
+def stage_view(game: Game) -> list[Json]:
+    """Return the rounds of the stage the match is in, each with its events and its progress."""
+    played = game.round_index
+    focus = game.rounds[min(played, len(game.rounds) - 1)]
+    return [
+        {
+            "label": round_id.label,
+            "pve": round_id.is_pve,
+            "carousel": round_id.is_carousel,
+            "augment": round_id.is_augment,
+            "state": round_progress(index, played, finished=game.finished),
+        }
+        for index, round_id in enumerate(game.rounds)
+        if round_id.stage == focus.stage
+    ]
+
+
 def board_view(rules: Rules) -> Json:
     """Return the grid and what its rows do."""
     return {
@@ -211,6 +235,7 @@ def match_state(game: Game, seat: str | None) -> Json:
         "mode": "market" if pack is not None else "power",
         "pack": pack.name if pack is not None else None,
         "round": round_view(game.current, game),
+        "stage": stage_view(game),
         "rounds_played": game.round_index,
         "board": board_view(rules),
         "bench_size": rules.bench_size,

@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from tft import environment as env
 from tft import lessons
 from tft.combat import CombatResult
 from tft.environment import Game, Player, RoundId, RoundReport, Unit
@@ -23,6 +24,8 @@ def line(**changes: Any) -> UnitLine:
     base: dict[str, Any] = {
         "unit": "Pip Squeak 1*",
         "champion": "Pip Squeak",
+        "cost": 1,
+        "star": 1,
         "role": "Scalper",
         "origin": "Forex",
         "symbol": "AAA",
@@ -258,12 +261,33 @@ def test_summarize_a_market_round() -> None:
     assert len(summary.units) == 1
     unit = summary.units[0]
     assert unit.champion == you.board[0].champion.name
+    assert (unit.cost, unit.star) == (you.board[0].champion.cost, 1)
     assert unit.closes[0] == 100.0
     assert len(unit.closes) == game.rules.slice_bars
     assert [origin for origin, _ in summary.origin_moves] == list(load_builtin().origins)
     assert len(summary.lessons) <= lessons.MAX_LESSONS
+    market = env.market_board(report.round_id, game.rules)
+    assert [line.champion for line in summary.opponent_units] == [
+        unit.champion.name for unit in market.board
+    ]
+    assert all(line.closes[0] == 100.0 for line in summary.opponent_units)
     with pytest.raises(KeyError, match="no player"):
         summarize(game, "zed", report)
+
+
+def test_summarize_a_player_fight_shows_the_opponent_board() -> None:
+    game = Game(["you", "ana"], seed=4, pack=load_builtin(), policies={"you": None})
+    for _ in range(game.rules.opening_rounds):
+        _ = game.start_round()
+        _ = game.finish_round()
+    _ = game.start_round()
+    report = game.finish_round()
+    summary = summarize(game, "you", report)
+    ana = game.player("ana")
+    assert summary.opponent == "ana"
+    assert [line.unit for line in summary.opponent_units] == [unit.describe() for unit in ana.board]
+    assert lessons.opponent_lines(game, None, report.round_id) == ()
+    assert lessons.opponent_lines(game, "nobody", report.round_id) == ()
 
 
 def test_summarize_without_a_market_or_a_fight() -> None:
@@ -276,6 +300,7 @@ def test_summarize_without_a_market_or_a_fight() -> None:
     assert summary.slice_label is None
     quiet = summarize(game, "you", RoundReport(RoundId.make(2, 2), (), ()))
     assert (quiet.outcome, quiet.opponent, quiet.damage, quiet.score) == ("none", None, 0, 0.0)
+    assert quiet.opponent_units == ()
 
 
 def test_outcomes_and_damage() -> None:
