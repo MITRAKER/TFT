@@ -50,6 +50,10 @@ STATIC: Mapping[str, tuple[str, str]] = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/logic.js": ("logic.js", "text/javascript; charset=utf-8"),
+    "/art.js": ("art.js", "text/javascript; charset=utf-8"),
+    "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
+    "/pieces.js": ("pieces.js", "text/javascript; charset=utf-8"),
+    "/scene.js": ("scene.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
 }

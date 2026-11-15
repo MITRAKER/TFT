@@ -1,76 +1,55 @@
 /**
  * The browser client: draws the match the server describes and sends the player's actions.
- * All game logic lives on the server; the pure helpers live in logic.js.
+ * All game logic lives on the server. The pure helpers are in logic.js, the pictures in art.js,
+ * the shared pieces in pieces.js and the fight scene in scene.js.
  */
+import { $, button, clear, decorate, el, icon, portrait, traitGlyph } from "./dom.js";
 import {
   cellEffect,
   fightText,
   headline,
-  hexRows,
-  initials,
   interestPips,
   isCovered,
   nextStep,
   oddsText,
   ordinal,
   percent,
+  resultLabel,
+  resultTone,
+  roundKind,
   signed,
-  sparkline,
+  standings,
   streakText,
+  traitSteps,
   unitAt,
 } from "./logic.js";
+import { hexCell, hexGrid, itemTile, recipesOf, sparkSvg, token } from "./pieces.js";
+import { playFight } from "./scene.js";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
 const AUTO_DELAY_MS = 1200;
 const TOAST_MS = 3200;
 const SPARK_WIDTH = 120;
 const SPARK_HEIGHT = 32;
+const STAR = "★";
 const HINT =
   "Click a unit, then a cell to place it. Click two components to craft an item, " +
   "then the item and a unit to equip it.";
+const ROUND_NAMES = {
+  fight: "player fight",
+  market: "against the Market",
+  carousel: "carousel, then a player fight",
+};
 
-const view = { match: null, catalog: null, selection: null, auto: false, busy: false, timer: null };
-
-const $ = (id) => document.getElementById(id);
-
-function setProp(node, key, value) {
-  if (key === "class") {
-    node.className = value;
-  } else if (key === "text") {
-    node.textContent = value;
-  } else if (key === "data") {
-    Object.assign(node.dataset, value);
-  } else if (key.startsWith("on")) {
-    node.addEventListener(key.slice(2), value);
-  } else {
-    node.setAttribute(key, value === true ? "" : String(value));
-  }
-}
-
-/** Create an element; `props` sets class, text, data, listeners (onclick...) and attributes. */
-function el(tag, props = {}, children = []) {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
-    if (value !== null && value !== undefined && value !== false) {
-      setProp(node, key, value);
-    }
-  }
-  for (const child of [].concat(children)) {
-    if (child) {
-      node.append(child);
-    }
-  }
-  return node;
-}
-
-function clear(node) {
-  node.replaceChildren();
-  return node;
-}
-
-function button(text, onclick, extra = {}) {
-  return el("button", { type: "button", text, onclick, ...extra });
-}
+const view = {
+  match: null,
+  catalog: null,
+  recipes: new Map(),
+  selection: null,
+  auto: false,
+  busy: false,
+  timer: null,
+  skipScene: null,
+};
 
 /** A refusal by the rules or the server, with a message for the player. */
 class Refused extends Error {}
@@ -159,22 +138,46 @@ function closeDialog() {
   $("overlay").hidden = true;
 }
 
-/* Units -------------------------------------------------------------------- */
+/* Small pieces ------------------------------------------------------------- */
 
-function unitTile(unit) {
-  const meta = [el("span", { class: "stars", text: "★".repeat(unit.star) })];
-  if (unit.symbol) {
-    meta.push(document.createTextNode(` ${unit.symbol}`));
+function fromCatalog(kind, name) {
+  const entries = (view.catalog && view.catalog[kind]) || [];
+  return entries.find((entry) => entry.name === name) || null;
+}
+
+function glyphSlot(glyph, extra = "") {
+  return el("span", { class: `glyph-slot${extra ? ` ${extra}` : ""}` }, [glyph]);
+}
+
+function coins(amount) {
+  return el("span", { class: "coins" }, [
+    glyphSlot(icon("coin"), "gold"),
+    document.createTextNode(String(amount)),
+  ]);
+}
+
+function traitChip(name) {
+  return el("span", { class: "trait-chip" }, [glyphSlot(traitGlyph(name)), document.createTextNode(name)]);
+}
+
+function healthBar(seat) {
+  const fill = el("span", { class: "fill hp" });
+  fill.style.setProperty("--amount", `${percent(seat.health, seat.max_health)}%`);
+  return el("span", { class: "bar" }, [fill]);
+}
+
+function tone(value) {
+  if (value > 0) {
+    return "pos";
   }
-  return el("span", { class: "unit" }, [
-    el("span", { class: "unit-initials", text: initials(unit.name) }),
-    el("span", { class: "unit-name", text: unit.name }),
-    el("span", { class: "unit-meta" }, meta),
-    el(
-      "span",
-      { class: "unit-items" },
-      unit.items.map(() => el("span", { class: "item-dot" })),
-    ),
+  return value < 0 ? "neg" : "";
+}
+
+function moveChip(origin, move) {
+  return el("span", { class: "move", data: { origin } }, [
+    glyphSlot(traitGlyph(origin)),
+    document.createTextNode(`${origin} `),
+    el("span", { class: tone(move), text: signed(move) }),
   ]);
 }
 
@@ -183,24 +186,21 @@ function isSelectedUnit(unit) {
   return Boolean(unit && selection && selection.type === "unit" && selection.index === unit.index);
 }
 
+function isSelected(type, index) {
+  const selection = view.selection;
+  return Boolean(selection && selection.type === type && selection.index === index);
+}
+
 function miniBoard(units, board) {
-  const node = el("div", { class: "board mini" });
-  for (const line of hexRows(board.rows, board.cols)) {
-    const rowNode = el("div", { class: `hex-row${line.shifted ? " shifted" : ""}` });
-    for (const { row, col } of line.cells) {
-      const unit = unitAt(units, row, col);
-      const cell = el("span", { class: `hex${unit ? " occupied" : ""}` });
-      if (unit) {
-        cell.dataset.origin = unit.origin;
-        cell.dataset.cost = unit.cost;
-        cell.title = `${unit.name} ${"★".repeat(unit.star)}`;
-        cell.append(unitTile(unit));
-      }
-      rowNode.append(cell);
+  const cellFor = (row, col) => {
+    const unit = unitAt(units, row, col);
+    const props = { class: `hex${unit ? " occupied" : ""}` };
+    if (unit) {
+      props.title = `${unit.name} ${STAR.repeat(unit.star)}`;
     }
-    node.append(rowNode);
-  }
-  return node;
+    return hexCell("span", props, unit ? token(unit, view.recipes) : null);
+  };
+  return el("div", { class: "board mini" }, hexGrid(board, cellFor));
 }
 
 function traitText(traits) {
@@ -248,7 +248,29 @@ function renderMatchList(matches) {
   }
 }
 
+function renderShowcase() {
+  const champions = (view.catalog && view.catalog.champions) || [];
+  const units = champions.map((champion) =>
+    el(
+      "span",
+      {
+        class: "show-unit",
+        title: `${champion.name}: ${champion.cost}-cost ${champion.origin} ${champion.role}`,
+      },
+      [token({ ...champion, star: 1, items: [] }, view.recipes)],
+    ),
+  );
+  clear($("showcase")).append(...units);
+}
+
+function endScene() {
+  if (view.skipScene) {
+    view.skipScene();
+  }
+}
+
 async function loadLobby() {
+  endScene();
   show("lobby");
   setRoundInfo("");
   closeDialog();
@@ -296,7 +318,7 @@ function setMatch(state) {
   }
 }
 
-/* The match ---------------------------------------------------------------- */
+/* The match: top of the table ----------------------------------------------- */
 
 function roundText(state) {
   const arena = state.mode === "market" ? `market pack ${state.pack}` : "power mode";
@@ -315,7 +337,45 @@ function roundText(state) {
   return parts.join(", ");
 }
 
-function renderHud(seat) {
+function renderStage(state) {
+  const list = clear($("stage"));
+  for (const round of state.stage) {
+    const kind = roundKind(round);
+    const marks = [el("span", { class: "round-icon" }, [icon(kind)])];
+    if (round.augment) {
+      marks.push(el("span", { class: "round-gem" }, [icon("augment")]));
+    }
+    marks.push(el("span", { class: "round-label", text: round.label }));
+    const title = `Round ${round.label}: ${ROUND_NAMES[kind]}${round.augment ? ", augment" : ""}`;
+    const current = round.state === "current" ? "step" : null;
+    list.append(el("li", { class: `round ${round.state} ${kind}`, title, "aria-current": current }, marks));
+  }
+  $("phase").textContent =
+    state.phase === "finished" ? "The match is over" : "Planning: buy, place, then fight";
+}
+
+function renderTape(state) {
+  const node = clear($("tape"));
+  const summary = state.last && state.last.summary;
+  const moves = summary ? summary.origin_moves : [];
+  if (moves.length === 0) {
+    const text =
+      state.mode === "market"
+        ? "Every fight is decided on a slice of real market history."
+        : "Power mode: the stronger board wins.";
+    node.append(el("span", { class: "muted", text }));
+    return;
+  }
+  node.append(el("span", { class: "tape-label", text: "Last slice" }));
+  node.append(...moves.map(([origin, move]) => moveChip(origin, move)));
+}
+
+function actionLabel(node, glyph, text, cost) {
+  clear(node).append(glyphSlot(icon(glyph)), el("span", { class: "action-text", text }), coins(cost));
+}
+
+function renderHud(state) {
+  const { seat, costs } = state;
   $("hp-fill").style.setProperty("--amount", `${percent(seat.health, seat.max_health)}%`);
   $("hp-text").textContent = String(seat.health);
   $("gold").textContent = String(seat.gold);
@@ -324,40 +384,42 @@ function renderHud(seat) {
   clear($("interest")).append(...pips);
   const income = seat.income;
   $("income").textContent = `+${income.total} next round`;
-  $("income").title =
-    `${income.base} base, ${income.interest} interest, ${income.streak} streak bonus`;
+  $("income").title = `${income.base} base, ${income.interest} interest, ${income.streak} streak bonus`;
   $("level").textContent = String(seat.level);
   const xpShare = seat.xp_needed ? percent(seat.xp, seat.xp_needed) : 100;
   $("xp-fill").style.setProperty("--amount", `${xpShare}%`);
   $("xp-text").textContent = seat.xp_needed ? `${seat.xp}/${seat.xp_needed} xp` : "max level";
   $("streak").textContent = streakText(seat.streak);
+  actionLabel($("btn-xp"), "xp", "Buy XP", costs.xp);
+  actionLabel($("btn-reroll"), "reroll", "Reroll", costs.reroll);
+  $("odds").textContent = `Shop odds by cost: ${oddsText(seat.odds)}`;
+}
+
+function seatRow(seat) {
+  const body = [
+    el("span", { class: "avatar", text: seat.name.slice(0, 1).toUpperCase() }),
+    el("span", { class: "rival-main" }, [
+      el("span", { class: "rival-top" }, [
+        el("strong", { text: seat.me ? "You" : seat.name }),
+        el("span", { class: "muted", text: `Lv ${seat.level}` }),
+      ]),
+      healthBar(seat),
+    ]),
+    el("strong", { class: "rival-hp", text: String(seat.health) }),
+  ];
+  const classes = `rival${seat.alive ? "" : " out"}${seat.me ? " me" : ""}`;
+  if (seat.me) {
+    return el("div", { class: classes }, body);
+  }
+  const label = `Scout ${seat.name}: ${seat.health} health, level ${seat.level}`;
+  return el("button", { type: "button", class: classes, "aria-label": label, onclick: () => showScout(seat) }, body);
 }
 
 function renderRivals(state) {
-  const node = clear($("rivals"));
-  for (const rival of state.others) {
-    const fill = el("span", { class: "fill hp" });
-    fill.style.setProperty("--amount", `${percent(rival.health, rival.max_health)}%`);
-    node.append(
-      el(
-        "button",
-        {
-          type: "button",
-          class: `rival${rival.alive ? "" : " out"}`,
-          "aria-label": `Scout ${rival.name}: ${rival.health} health, level ${rival.level}`,
-          onclick: () => showScout(rival),
-        },
-        [
-          el("span", { class: "rival-top" }, [
-            el("strong", { text: rival.name }),
-            el("span", { class: "muted", text: `Lv ${rival.level}` }),
-          ]),
-          el("span", { class: "bar" }, [fill]),
-        ],
-      ),
-    );
-  }
+  clear($("rivals")).append(...standings(state.seat, state.others).map(seatRow));
 }
+
+/* The match: board, bench and shop ------------------------------------------ */
 
 function cellButton(state, row, col) {
   const { seat, board } = state;
@@ -376,38 +438,26 @@ function cellButton(state, row, col) {
   if (isSelectedUnit(unit)) {
     classes.push("selected");
   }
-  const node = el("button", {
+  const props = {
     type: "button",
     class: classes.join(" "),
     "aria-label": label,
     title: label,
     data: { row, col },
     onclick: () => clickTarget({ type: "cell", row, col, unit: unit ? unit.index : null }),
-  });
-  if (unit) {
-    node.dataset.origin = unit.origin;
-    node.dataset.cost = unit.cost;
-    node.append(unitTile(unit));
-  }
-  return node;
+  };
+  return hexCell("button", props, unit ? token(unit, view.recipes) : null);
 }
 
 function renderBoard(state) {
   const { seat, board } = state;
   const node = clear($("board"));
-  const placing = Boolean(view.selection && view.selection.type === "unit");
-  node.classList.toggle("targeting", placing);
-  for (const line of hexRows(board.rows, board.cols)) {
-    const rowNode = el("div", { class: `hex-row${line.shifted ? " shifted" : ""}` });
-    for (const { row, col } of line.cells) {
-      rowNode.append(cellButton(state, row, col));
-    }
-    node.append(rowNode);
-  }
+  node.classList.toggle("targeting", Boolean(view.selection && view.selection.type === "unit"));
+  node.append(...hexGrid(board, (row, col) => cellButton(state, row, col)));
   $("board-count").textContent = `${seat.board.length}/${seat.board_limit}`;
   $("board-legend").textContent =
-    `Front row on top. Position size by row: ${board.row_size.join(" / ")}%. ` +
-    "A back unit needs a unit in front of it in its column.";
+    `Front row at the top. Size by row: ${board.row_size.join(" / ")}%. ` +
+    `A back unit with nobody in front of it pays ${board.exposed}% more for drawdowns.`;
 }
 
 function renderBench(state) {
@@ -422,100 +472,101 @@ function renderBench(state) {
       classes.push("selected");
     }
     const label = unit ? `${unit.name}, ${unit.star} star, on the bench` : "Empty bench slot";
-    const slotNode = el("button", {
-      type: "button",
-      class: classes.join(" "),
-      "aria-label": label,
-      title: label,
-      onclick: () => clickTarget({ type: "bench", unit: unit ? unit.index : null }),
-    });
-    if (unit) {
-      slotNode.dataset.origin = unit.origin;
-      slotNode.dataset.cost = unit.cost;
-      slotNode.append(unitTile(unit));
-    }
-    node.append(slotNode);
-  }
-}
-
-function renderShop(state) {
-  const { seat, costs } = state;
-  const node = clear($("shop"));
-  seat.shop.forEach((offer, slot) => {
-    if (!offer) {
-      node.append(
-        el("button", { type: "button", class: "card empty", disabled: true, "aria-label": "Sold" }),
-      );
-      return;
-    }
     node.append(
       el(
         "button",
         {
           type: "button",
-          class: `card${offer.affordable ? "" : " poor"}`,
-          data: { origin: offer.origin, cost: offer.cost },
-          "aria-label": `Buy ${offer.name} for ${offer.cost} gold`,
-          onclick: () => act("buy", [slot]),
+          class: classes.join(" "),
+          "aria-label": label,
+          title: label,
+          onclick: () => clickTarget({ type: "bench", unit: unit ? unit.index : null }),
         },
-        [
-          el("span", { class: "card-name", text: offer.name }),
-          el("span", { class: "card-sub", text: `${offer.origin}, ${offer.role}` }),
-          el("span", { class: "card-cost", text: `${offer.cost} gold` }),
-        ],
+        unit ? [token(unit, view.recipes)] : [],
       ),
     );
-  });
-  $("btn-xp").textContent = `Buy XP (${costs.xp} gold)`;
-  $("btn-reroll").textContent = `Reroll (${costs.reroll} gold)`;
-  $("odds").textContent = `Shop odds by cost: ${oddsText(seat.odds)}`;
+  }
+}
+
+function shopCard(offer, slot) {
+  if (!offer) {
+    return el("button", { type: "button", class: "card empty", disabled: true, "aria-label": "Sold" });
+  }
+  return el(
+    "button",
+    {
+      type: "button",
+      class: `card${offer.affordable ? "" : " poor"}`,
+      data: { origin: offer.origin, cost: offer.cost },
+      "aria-label": `Buy ${offer.name} for ${offer.cost} gold`,
+      onclick: () => act("buy", [slot]),
+    },
+    [
+      el("span", { class: "card-art" }, [portrait(offer.name)]),
+      el("span", { class: "card-traits" }, [traitChip(offer.origin), traitChip(offer.role)]),
+      el("span", { class: "card-foot" }, [
+        el("span", { class: "card-name", text: offer.name }),
+        el("span", { class: "card-cost" }, [coins(offer.cost)]),
+      ]),
+    ],
+  );
+}
+
+function renderShop(state) {
+  clear($("shop")).append(...state.seat.shop.map(shopCard));
+}
+
+/* The match: rails ---------------------------------------------------------- */
+
+function traitRow(trait) {
+  const steps = traitSteps(trait).map((step) =>
+    el("span", { class: `step${step.reached ? " reached" : ""}`, text: String(step.needed) }),
+  );
+  const parts = [
+    el("span", { class: "trait-badge" }, [traitGlyph(trait.name)]),
+    el("span", { class: "trait-count", text: String(trait.count) }),
+    el("span", { class: "trait-main" }, [
+      el("span", { class: "trait-name", text: trait.name }),
+      el("span", { class: "trait-steps" }, steps),
+    ]),
+  ];
+  if (trait.tier > 0) {
+    parts.push(el("span", { class: "pos trait-bonus", text: `+${trait.bonus}%` }));
+  }
+  const classes = `trait${trait.tier > 0 ? " active" : ""}`;
+  return el("li", { class: classes, title: trait.summary, data: { tier: trait.tier } }, parts);
 }
 
 function renderTraits(seat) {
   const list = clear($("traits"));
   if (seat.traits.length === 0) {
     list.append(el("li", { class: "muted", text: "Field units that share a market or a style." }));
+    return;
   }
-  const progress = (trait) => {
-    const next = trait.breakpoints.find((needed) => needed > trait.count);
-    return next ? `${trait.name} ${trait.count}/${next}` : `${trait.name} ${trait.count}`;
-  };
-  for (const trait of seat.traits.filter((one) => one.tier > 0)) {
-    list.append(
-      el("li", { class: "trait active", title: trait.summary }, [
-        el("span", { text: progress(trait) }),
-        el("span", { class: "pos", text: `+${trait.bonus}%` }),
-      ]),
-    );
-  }
-  const waiting = seat.traits.filter((one) => one.tier === 0).map(progress);
-  if (waiting.length > 0) {
-    list.append(el("li", { class: "muted trait-rest", text: `Not active yet: ${waiting.join(", ")}` }));
-  }
-}
-
-function isSelected(type, index) {
-  const selection = view.selection;
-  return Boolean(selection && selection.type === type && selection.index === index);
+  list.append(...seat.traits.map(traitRow));
 }
 
 function renderInventory(seat) {
   const components = clear($("components"));
   seat.components.forEach((name, index) => {
+    const entry = fromCatalog("components", name);
     components.append(
-      button(name, () => clickTarget({ type: "component", index }), {
-        class: `pill${isSelected("component", index) ? " selected" : ""}`,
+      itemTile([name], {
+        class: isSelected("component", index) ? "selected" : "",
+        title: `${name}: ${entry ? entry.effect : ""}`,
         "aria-label": `Component ${name}`,
+        onclick: () => clickTarget({ type: "component", index }),
       }),
     );
   });
   const items = clear($("items"));
   seat.items.forEach((item, index) => {
     items.append(
-      button(item.name, () => clickTarget({ type: "item", index }), {
-        class: `pill item${isSelected("item", index) ? " selected" : ""}`,
-        title: item.effect,
+      itemTile(item.components, {
+        class: isSelected("item", index) ? "selected" : "",
+        title: `${item.name}: ${item.effect}`,
         "aria-label": `Item ${item.name}: ${item.effect}`,
+        onclick: () => clickTarget({ type: "item", index }),
       }),
     );
   });
@@ -528,26 +579,29 @@ function renderAugments(seat) {
     list.append(el("li", {}, [button("Choose your augment", offerAugment, { class: "primary" })]));
   }
   for (const augment of seat.augments) {
-    list.append(el("li", { class: "trait", text: `${augment.name}: ${augment.text}` }));
+    list.append(
+      el("li", { class: "augment", data: { tier: augment.tier }, title: augment.text }, [
+        glyphSlot(icon("augment")),
+        el("span", {}, [el("strong", { text: augment.name }), el("span", { class: "muted", text: ` ${augment.text}` })]),
+      ]),
+    );
   }
   if (seat.offer.length + seat.augments.length === 0) {
     list.append(el("li", { class: "muted", text: "Augments are offered at rounds 2-1, 3-2 and 4-2." }));
   }
 }
 
-function fromCatalog(kind, name) {
-  const entries = (view.catalog && view.catalog[kind]) || [];
-  return entries.find((entry) => entry.name === name) || null;
-}
-
 function unitDetail(state, unit) {
   const champion = fromCatalog("champions", unit.name);
   const strategy = (view.catalog && view.catalog.strategies[unit.role]) || "";
-  const lines = [
-    el("strong", { text: `${unit.name} ${"★".repeat(unit.star)}` }),
-    el("span", { class: "muted", text: `${unit.cost}-cost, ${unit.origin}, ${unit.role}` }),
-    el("span", { text: strategy }),
-  ];
+  const head = el("span", { class: "detail-head", data: { origin: unit.origin, cost: unit.cost } }, [
+    el("span", { class: "disc" }, [portrait(unit.name)]),
+    el("span", { class: "detail-title" }, [
+      el("strong", { text: `${unit.name} ${STAR.repeat(unit.star)}` }),
+      el("span", { class: "detail-traits" }, [traitChip(unit.origin), traitChip(unit.role), coins(unit.cost)]),
+    ]),
+  ]);
+  const lines = [head, el("span", { text: strategy })];
   if (champion) {
     lines.push(el("span", { class: "muted", text: `${champion.ability}: ${champion.text}` }));
   }
@@ -604,7 +658,9 @@ function renderGame() {
   const state = view.match;
   show("game");
   setRoundInfo(roundText(state));
-  renderHud(state.seat);
+  renderStage(state);
+  renderTape(state);
+  renderHud(state);
   renderRivals(state);
   renderBoard(state);
   renderBench(state);
@@ -616,6 +672,9 @@ function renderGame() {
 }
 
 function act(kind, args = []) {
+  if (view.skipScene) {
+    return Promise.resolve();
+  }
   return guarded(async () => {
     try {
       const data = await request("POST", matchPath(view.match.id, "/actions"), { kind, args });
@@ -629,6 +688,9 @@ function act(kind, args = []) {
 }
 
 function clickTarget(target) {
+  if (view.busy || view.skipScene) {
+    return Promise.resolve();
+  }
   const step = nextStep(view.selection, target);
   if (step.kind === "action") {
     return act(step.action.kind, step.action.args);
@@ -646,59 +708,38 @@ function clickTarget(target) {
 
 /* Round results ------------------------------------------------------------ */
 
-function sparkSvg(line) {
-  const { points, coords } = sparkline(line.closes, SPARK_WIDTH, SPARK_HEIGHT);
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("class", "spark");
-  svg.setAttribute("viewBox", `0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`);
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `${line.symbol} over the slice`);
-  const path = document.createElementNS(SVG_NS, "polyline");
-  path.setAttribute("class", "spark-line");
-  path.setAttribute("points", points);
-  svg.append(path);
-  for (const [bar, what] of line.marks) {
-    const point = coords[bar];
-    if (!point) {
-      continue;
-    }
-    const dot = document.createElementNS(SVG_NS, "circle");
-    dot.setAttribute("class", `mark-${what}`);
-    dot.setAttribute("cx", String(point[0]));
-    dot.setAttribute("cy", String(point[1]));
-    dot.setAttribute("r", "3");
-    const title = document.createElementNS(SVG_NS, "title");
-    title.textContent = `${what} on day ${bar + 1}`;
-    dot.append(title);
-    svg.append(dot);
+function tradeRow(line, withChart) {
+  const result = resultTone(line);
+  const resultClass = { up: "pos", down: "neg", out: "neg" }[result] || "";
+  const cells = [el("td", { text: line.unit }), el("td", { class: "ticker", text: line.symbol })];
+  if (withChart) {
+    cells.push(el("td", {}, [sparkSvg(line, SPARK_WIDTH, SPARK_HEIGHT)]));
   }
-  return svg;
-}
-
-function tone(value) {
-  if (value > 0) {
-    return "pos";
-  }
-  return value < 0 ? "neg" : "";
-}
-
-function tradesTable(units) {
-  const head = ["Unit", "Ticker", "Slice", "P&L", "Drawdown", "Trades", "Score"];
-  const rows = units.map((line) =>
-    el("tr", {}, [
-      el("td", { text: line.unit }),
-      el("td", { text: line.symbol }),
-      el("td", {}, [sparkSvg(line)]),
-      el("td", { class: tone(line.pnl), text: signed(line.pnl) }),
-      el("td", { text: `${line.drawdown.toFixed(1)}%` }),
-      el("td", { text: String(line.trades) }),
-      el("td", { class: tone(line.score), text: line.score.toFixed(1) }),
-    ]),
+  cells.push(
+    el("td", { class: tone(line.pnl), text: signed(line.pnl) }),
+    el("td", { text: `${line.drawdown.toFixed(1)}%` }),
+    el("td", { text: String(line.trades) }),
+    el("td", { text: line.size.toFixed(2) }),
+    el("td", { class: resultClass, text: resultLabel(line) }),
+    el("td", { class: "score", text: line.score.toFixed(2) }),
   );
+  return el("tr", {}, cells);
+}
+
+function tradesTable(units, kind) {
+  const withChart = kind === "trades";
+  const head = ["Unit", "Ticker", "P&L", "Drawdown", "Trades", "Size", "Result", "Score"];
+  if (withChart) {
+    head.splice(2, 0, "Slice");
+  }
   return el("div", { class: "table-wrap" }, [
-    el("table", { class: "trades" }, [
+    el("table", { class: `ledger ${kind}` }, [
       el("thead", {}, [el("tr", {}, head.map((text) => el("th", { scope: "col", text })))]),
-      el("tbody", {}, rows),
+      el(
+        "tbody",
+        {},
+        units.map((line) => tradeRow(line, withChart)),
+      ),
     ]),
   ]);
 }
@@ -711,23 +752,37 @@ function fightsList(report) {
   return el("ul", { class: "fights" }, items);
 }
 
+function boardsOf(summary) {
+  const parts = [];
+  if (summary.units.length > 0) {
+    parts.push(tradesTable(summary.units, "trades"));
+  }
+  if (summary.units.length + summary.opponent_units.length > 0) {
+    const scores = `${summary.score.toFixed(2)} against ${summary.opponent_score.toFixed(2)}`;
+    const how =
+      "A unit's score is its size after the trade: a good trade grows it, a bad one shrinks it.";
+    parts.push(el("p", { class: "muted", text: `Board score ${scores}. ${how}` }));
+  }
+  if (summary.opponent_units.length > 0) {
+    const label = `${summary.opponent || "The other board"}: ${summary.opponent_units.length} unit(s)`;
+    parts.push(
+      el("details", { class: "other-board" }, [
+        el("summary", { text: label }),
+        tradesTable(summary.opponent_units, "theirs"),
+      ]),
+    );
+  }
+  return parts;
+}
+
 function resultBody(summary, report) {
   const where = summary.slice_label ? `, market slice ${summary.slice_label}` : "";
   const body = [el("p", { class: "muted", text: `Round ${summary.round_label}${where}` })];
   if (summary.origin_moves.length > 0) {
-    const chips = summary.origin_moves.map(([origin, move]) =>
-      el("span", { class: "move", data: { origin } }, [
-        document.createTextNode(`${origin} `),
-        el("span", { class: tone(move), text: signed(move) }),
-      ]),
-    );
+    const chips = summary.origin_moves.map(([origin, move]) => moveChip(origin, move));
     body.push(el("div", { class: "moves" }, chips));
   }
-  if (summary.units.length > 0) {
-    body.push(tradesTable(summary.units));
-    const scores = `${summary.score.toFixed(1)} against ${summary.opponent_score.toFixed(1)}`;
-    body.push(el("p", { class: "muted", text: `Board score ${scores}` }));
-  }
+  body.push(...boardsOf(summary));
   body.push(el("h2", { text: "What this round teaches" }));
   if (summary.lessons.length === 0) {
     body.push(el("p", { class: "muted", text: "Nothing stood out this round. Keep going." }));
@@ -755,13 +810,46 @@ function showResult() {
   openDialog(headline(summary), resultBody(summary, report), [next], summary.outcome);
 }
 
+function wantsMotion() {
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function afterFight() {
+  view.skipScene = null;
+  renderGame();
+  showResult();
+}
+
+/** Show the round that was just fought: the scene when there is something to see, then the result. */
+function showFight(state) {
+  const summary = state.last.summary;
+  const fighters = summary ? summary.units.length + summary.opponent_units.length : 0;
+  if (fighters === 0 || !wantsMotion()) {
+    afterFight();
+    return;
+  }
+  const stage = {
+    root: $("theatre"),
+    floor: $("scene-floor"),
+    mine: $("scene-mine"),
+    enemy: $("scene-enemy"),
+    banner: $("banner"),
+  };
+  const versus = summary.opponent ? `You against ${summary.opponent}` : "Your board";
+  const where = summary.slice_label ? `, trading ${summary.slice_label}` : "";
+  $("scene-caption").textContent = `Round ${summary.round_label}: ${versus}${where}`;
+  view.skipScene = playFight(stage, summary, state.board, view.recipes, afterFight);
+}
+
 function fight() {
+  if (view.skipScene) {
+    return Promise.resolve();
+  }
   return guarded(async () => {
     const data = await request("POST", matchPath(view.match.id, "/ready"));
     view.match = data.state;
     view.selection = null;
-    renderGame();
-    showResult();
+    showFight(data.state);
   });
 }
 
@@ -803,6 +891,7 @@ function offerAugment() {
         },
       },
       [
+        glyphSlot(icon("augment"), "offer-gem"),
         el("strong", { text: augment.name }),
         el("span", { class: "muted", text: augment.tier }),
         el("span", { text: augment.text }),
@@ -861,15 +950,13 @@ function showFinished() {
 /* Spectating --------------------------------------------------------------- */
 
 function seatCard(seat, board) {
-  const fill = el("span", { class: "fill hp" });
-  fill.style.setProperty("--amount", `${percent(seat.health, seat.max_health)}%`);
   const facts = `${seat.health} health, level ${seat.level}, ${seat.gold} gold, ${streakText(seat.streak)}`;
   return el("div", { class: `panel seat-card${seat.alive ? "" : " out"}` }, [
     el("div", { class: "section-head" }, [
       el("strong", { text: seat.name }),
       el("span", { class: "muted", text: facts }),
     ]),
-    el("span", { class: "bar" }, [fill]),
+    healthBar(seat),
     miniBoard(seat.board, board),
     el("p", { class: "muted", text: traitText(seat.traits) }),
   ]);
@@ -943,6 +1030,13 @@ function onShortcut(key) {
 }
 
 function onKey(event) {
+  if (view.skipScene) {
+    if (["Escape", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      endScene();
+    }
+    return;
+  }
   if (event.key === "Escape") {
     onEscape();
     return;
@@ -976,10 +1070,13 @@ function wire() {
 
 async function start() {
   wire();
+  decorate(document);
   await guarded(async () => {
     view.catalog = await request("GET", "/api/catalog");
+    view.recipes = recipesOf(view.catalog);
     document.title = view.catalog.name;
     $("brand").textContent = view.catalog.name;
+    renderShowcase();
     await loadLobby();
   });
 }

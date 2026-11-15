@@ -88,17 +88,17 @@ export function isCovered(units, row, col) {
   return units.some((unit) => unit.cell && unit.cell[1] === col && unit.cell[0] < row);
 }
 
-/** What standing on a row does, as text: "size 120%, exposed: drawdowns weigh 25% more". */
+/** What standing on a row does, as text: "size 110%, exposed: drawdowns weigh 50% more". */
 export function cellEffect(board, units, row, col) {
   const parts = [`size ${board.row_size[row]}%`];
   const shield = board.row_shield[row];
   if (shield) {
-    parts.push(`absorbs ${shield}% of drawdowns`);
+    parts.push(`forgives ${shield}% of drawdowns`);
   }
   if (row >= Math.floor(board.rows / 2)) {
     parts.push(
       isCovered(units, row, col)
-        ? `covered: absorbs ${board.cover}% more`
+        ? `covered: forgives ${board.cover}% of drawdowns`
         : `exposed: drawdowns weigh ${board.exposed}% more`,
     );
   }
@@ -148,6 +148,77 @@ export function fightText(fight) {
     return `${fight.home} and ${fight.away} drew`;
   }
   return `${fight.winner} beat ${fight.loser} with ${fight.survivors} unit(s) left`;
+}
+
+/** What a unit's trade multiplied its size by: 1 keeps it, 0 is a wipe-out. */
+export function factorOf(line) {
+  return line.size > 0 ? line.score / line.size : 0;
+}
+
+/** How a unit's round went: "out" (wiped out), "up", "down" or "flat". */
+export function resultTone(line) {
+  if (!(line.size > 0)) {
+    return "flat";
+  }
+  if (line.score <= 0) {
+    return "out";
+  }
+  const change = Math.round((factorOf(line) - 1) * 100);
+  if (change === 0) {
+    return "flat";
+  }
+  return change > 0 ? "up" : "down";
+}
+
+/** The label a unit's result gets in the fight: "+38%", "-26%", "0%" or "wiped out". */
+export function resultLabel(line) {
+  const tone = resultTone(line);
+  if (tone === "out") {
+    return "wiped out";
+  }
+  const change = Math.round((factorOf(line) - 1) * 100);
+  return `${change > 0 ? "+" : ""}${change}%`;
+}
+
+/** Where a cell of the opposing board is drawn: turned around to face the player. */
+export function mirrorCell(board, row, col) {
+  return [board.rows - 1 - row, board.cols - 1 - col];
+}
+
+/** Every seat for the scoreboard: the living by health, then the eliminated; `me` marks the player. */
+export function standings(seat, others) {
+  const seats = others.map((other) => ({ ...other, me: false }));
+  if (seat) {
+    seats.push({ ...seat, me: true });
+  }
+  return seats.sort(
+    (a, b) => Number(b.alive) - Number(a.alive) || b.health - a.health || a.name.localeCompare(b.name),
+  );
+}
+
+/** The kind of a round for its icon: "carousel", "market" (against the Market) or "fight". */
+export function roundKind(round) {
+  if (round.carousel) {
+    return "carousel";
+  }
+  return round.pve ? "market" : "fight";
+}
+
+/** A trait's breakpoints with whether the count reaches each: [{ needed: 2, reached: true }, ...]. */
+export function traitSteps(trait) {
+  return trait.breakpoints.map((needed) => ({ needed, reached: trait.count >= needed }));
+}
+
+/** The banner of the fight scene: its word and its tone. */
+export function bannerOf(summary) {
+  const words = { won: "Victory", lost: "Defeat", draw: "Draw" };
+  const word = words[summary.outcome] || "No fight";
+  const scores =
+    summary.outcome in words
+      ? `${summary.score.toFixed(1)} to ${summary.opponent_score.toFixed(1)}`
+      : "";
+  const cost = summary.outcome === "lost" && summary.damage ? `-${summary.damage} health` : "";
+  return { word, tone: summary.outcome, scores, cost };
 }
 
 const SELECT = (selection) => ({ kind: "select", selection });

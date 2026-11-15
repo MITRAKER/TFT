@@ -15,14 +15,15 @@
     </header>
 
     <main>
-      <section id="lobby" class="screen" aria-labelledby="lobby-title">
+      <section id="lobby" class="screen lobby" aria-labelledby="lobby-title">
         <div class="hero">
           <h2 id="lobby-title">Draft traders. Survive the market.</h2>
           <p>
             An auto-battler where every unit is a trading strategy and every fight is decided on a
-            slice of real market history. Buy units, combine three into a stronger one, place hedges
-            in front and carries behind them, slam items, and read the lesson each round teaches.
+            slice of real market history. Buy units, combine three into a stronger one, size down
+            what swings, slam items, and read the lesson each round teaches.
           </p>
+          <div id="showcase" class="showcase" aria-label="The roster"></div>
         </div>
 
         <form id="new-match" class="panel new-match">
@@ -57,85 +58,93 @@
           <ul>
             <li><strong>Shop.</strong> Five units each round. Three copies of a unit merge into a stronger one.</li>
             <li><strong>Economy.</strong> Banked gold pays interest: 1 per 10 gold, up to 5 a round. Streaks pay extra.</li>
-            <li><strong>Board.</strong> One unit per level. The front row takes smaller positions and absorbs drawdowns.
-              The back row takes the biggest positions and needs a unit in front of it in the same column.</li>
+            <li><strong>Board.</strong> One unit per level. The front rows trade smaller and forgive part of a
+              drawdown: the place for what swings. The back rows trade bigger, and a back unit with nobody in
+              front of it in its column pays extra for every drawdown.</li>
             <li><strong>Tickers.</strong> A unit's column picks which symbol of its market it trades. Spread to diversify.</li>
             <li><strong>Items.</strong> Two components make an item: tighter stops, wider targets, bigger size, drawdown shields.</li>
-            <li><strong>Fight.</strong> Every unit trades its class's strategy on the round's slice. The better risk-adjusted board wins.</li>
+            <li><strong>Fight.</strong> Every unit trades its class's strategy on the round's slice. A good trade grows
+              the unit's size, a bad one shrinks it, a disaster wipes it out. The bigger board wins.</li>
           </ul>
         </details>
       </section>
 
-      <section id="game" class="screen" hidden aria-label="Match">
-        <div class="hud">
-          <div class="chip">
-            <span class="label">Health</span>
-            <span class="bar"><span id="hp-fill" class="fill hp"></span></span>
-            <span id="hp-text" class="value"></span>
-          </div>
-          <div class="chip">
-            <span class="label">Gold</span>
-            <span id="gold" class="value gold"></span>
-            <span id="interest" class="pips" aria-hidden="true"></span>
-            <span id="income" class="muted"></span>
-          </div>
-          <div class="chip">
-            <span class="label">Level</span>
-            <span id="level" class="value"></span>
-            <span class="bar"><span id="xp-fill" class="fill xp"></span></span>
-            <span id="xp-text" class="muted"></span>
-          </div>
-          <div class="chip">
-            <span class="label">Streak</span>
-            <span id="streak" class="value"></span>
-          </div>
+      <section id="game" class="screen game" hidden aria-label="Match">
+        <div class="stagebar">
+          <ol id="stage" class="stage-track" aria-label="Rounds of this stage"></ol>
+          <p id="phase" class="phase"></p>
         </div>
 
-        <div id="rivals" class="rivals" aria-label="Other players"></div>
+        <div class="table">
+          <aside class="rail rail-left" aria-label="Traits, items and augments">
+            <h2>Traits</h2>
+            <ul id="traits" class="traits"></ul>
+            <h2>Items</h2>
+            <div id="components" class="shelf" aria-label="Components"></div>
+            <div id="items" class="shelf" aria-label="Completed items"></div>
+            <p id="items-empty" class="muted">Components drop on Market rounds and carousels.</p>
+            <h2>Augments</h2>
+            <ul id="augments" class="augments"></ul>
+          </aside>
 
-        <div class="arena">
-          <div class="field">
-            <div class="section-head">
-              <h2>Board <span id="board-count" class="muted"></span></h2>
+          <div class="arena">
+            <div id="tape" class="tape" aria-label="How each market moved last round"></div>
+            <div id="floor" class="floor">
+              <div class="boards">
+                <div id="board" class="board mine" aria-label="Your board, front row first"></div>
+              </div>
+            </div>
+            <div class="arena-foot">
+              <span class="count">Board <strong id="board-count"></strong></span>
               <span id="board-legend" class="muted legend"></span>
             </div>
-            <div id="board" class="board" aria-label="Your board, front row first"></div>
-            <div class="section-head"><h2>Bench</h2></div>
             <div id="bench" class="bench" aria-label="Your bench"></div>
           </div>
 
-          <aside class="side">
-            <div class="panel">
-              <h2>Selected</h2>
-              <div id="detail" class="detail"></div>
-            </div>
-            <div class="panel">
-              <h2>Traits</h2>
-              <ul id="traits" class="traits"></ul>
-            </div>
-            <div class="panel">
-              <h2>Items</h2>
-              <div id="components" class="chips" aria-label="Components"></div>
-              <div id="items" class="chips" aria-label="Completed items"></div>
-              <p id="items-empty" class="muted">Components drop on Market rounds and carousels.</p>
-            </div>
-            <div class="panel">
-              <h2>Augments</h2>
-              <ul id="augments" class="augments"></ul>
-            </div>
+          <aside class="rail rail-right" aria-label="Players and selection">
+            <h2>Players</h2>
+            <div id="rivals" class="scoreboard" aria-label="Other players"></div>
+            <h2>Selected</h2>
+            <div id="detail" class="detail"></div>
           </aside>
         </div>
 
         <div class="shop-bar">
-          <div class="shop-actions">
-            <button id="btn-xp" type="button"></button>
-            <button id="btn-reroll" type="button"></button>
+          <div class="shop-side">
+            <div class="level-row">
+              <span class="level-badge">Level <strong id="level"></strong></span>
+              <span class="bar"><span id="xp-fill" class="fill xp"></span></span>
+              <span id="xp-text" class="muted"></span>
+            </div>
+            <button id="btn-xp" class="action" type="button"></button>
+            <button id="btn-reroll" class="action" type="button"></button>
             <span id="odds" class="muted odds"></span>
           </div>
-          <div id="shop" class="shop" aria-label="Shop"></div>
-          <div class="fight-actions">
-            <button id="btn-preview" type="button">Preview odds</button>
-            <button id="btn-fight" class="primary" type="button">Fight</button>
+
+          <div class="shop-main">
+            <div class="purse">
+              <span class="purse-gold" title="Gold">
+                <span class="glyph-slot gold" data-icon="coin"></span>
+                <strong id="gold" class="value gold"></strong>
+              </span>
+              <span id="interest" class="pips" aria-hidden="true"></span>
+              <span id="income" class="muted"></span>
+              <span class="purse-streak" title="Win or loss streak">
+                <span class="glyph-slot flame" data-icon="flame"></span>
+                <strong id="streak" class="value"></strong>
+              </span>
+            </div>
+            <div id="shop" class="shop" aria-label="Shop"></div>
+          </div>
+
+          <div class="shop-side right">
+            <div class="health-row" title="Your health">
+              <span class="glyph-slot heart" data-icon="heart"></span>
+              <span class="bar"><span id="hp-fill" class="fill hp"></span></span>
+              <strong id="hp-text" class="value"></strong>
+            </div>
+            <button id="btn-preview" class="action" type="button">Preview odds</button>
+            <button id="btn-fight" class="primary fight" type="button">Fight</button>
           </div>
         </div>
       </section>
@@ -156,6 +165,18 @@
         </div>
       </section>
     </main>
+
+    <div id="theatre" class="theatre" hidden>
+      <p id="scene-caption" class="scene-caption"></p>
+      <div id="scene-floor" class="floor scene-floor">
+        <div class="boards">
+          <div id="scene-enemy" class="board enemy" aria-hidden="true"></div>
+          <div id="scene-mine" class="board mine" aria-hidden="true"></div>
+        </div>
+        <div id="banner" class="banner" hidden></div>
+      </div>
+      <p class="scene-hint muted">Click or press Enter to skip</p>
+    </div>
 
     <div id="overlay" class="overlay" hidden>
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
