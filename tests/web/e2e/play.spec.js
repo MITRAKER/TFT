@@ -91,18 +91,35 @@ test("the first round shows the trade, the lessons and the market slice", async 
   expect(problems).toEqual([]);
 });
 
+/** Whether this browser can draw the 3D figures; without WebGL the client keeps its flat art. */
+function canDraw3d(page) {
+  return page.evaluate(() => Boolean(document.createElement("canvas").getContext("webgl")));
+}
+
 test("the table shows the stage, the players and original art for every unit", async ({ page }) => {
   const problems = watchForProblems(page);
   await page.goto("/");
-  await expect(page.locator("#showcase .token svg.art")).toHaveCount(25);
+  await expect(page.locator("#showcase .token")).toHaveCount(25);
+  const solid = await canDraw3d(page);
+  if (solid) {
+    await expect(page.locator("body")).toHaveClass(/has-figures/, { timeout: 60_000 });
+  }
+  const likeness = solid ? ".stand .figure" : ".disc svg.art";
+  await expect(page.locator(`#showcase .token ${likeness}`)).toHaveCount(25);
   await startMatch(page, { seed: 5, bots: 7 });
   await expect(page.locator("#stage .round")).toHaveCount(3);
   await expect(page.locator("#stage .round.current")).toHaveText("1-1");
   await expect(page.locator("#rivals .rival")).toHaveCount(8);
   await expect(page.locator("#rivals .rival.me")).toContainText("You");
-  await expect(page.locator("#shop .card .card-art svg.art")).toHaveCount(5);
+  await expect(page.locator(`#shop .card .card-art ${likeness}`)).toHaveCount(5);
   await buyAndField(page);
-  await expect(page.locator("#board .hex.occupied .token .disc svg.art")).toHaveCount(1);
+  await expect(page.locator(`#board .hex.occupied .token ${likeness}`)).toHaveCount(1);
+  if (solid) {
+    const sheet = await page
+      .locator("#board .hex.occupied .figure")
+      .evaluate((node) => getComputedStyle(node).backgroundImage);
+    expect(sheet).toMatch(/^url\("blob:/);
+  }
   await page.locator("#board .hex.occupied .token").click();
   await expect(page.locator("#detail")).toContainText("Sell");
   await page.locator("#rivals .rival:not(.me)").first().click();

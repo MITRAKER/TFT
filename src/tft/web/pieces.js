@@ -1,5 +1,5 @@
 /** Building blocks the client draws in several places: unit tokens, hex grids, charts, item tiles. */
-import { componentGlyph, el, portrait, svg } from "./dom.js";
+import { componentGlyph, el, likeness, svg } from "./dom.js";
 import { hexRows, sparkline } from "./logic.js";
 
 const STAR = "★";
@@ -44,9 +44,10 @@ export function token(unit, recipes) {
     plate.push(el("span", { class: "tag", text: piece.symbol }));
   }
   const data = { origin: piece.origin, cost: piece.cost, star: piece.star };
+  const salt = unit.cell ? unit.cell[0] * 7 + unit.cell[1] : 0;
   return el("span", { class: "token", data }, [
     el("span", { class: "stars", "aria-hidden": "true", text: STAR.repeat(piece.star) }),
-    el("span", { class: "disc" }, [portrait(piece.name)]),
+    likeness(piece.name, salt),
     el("span", { class: "plate" }, plate),
     el(
       "span",

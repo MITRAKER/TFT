@@ -1,5 +1,6 @@
 /** Small DOM helpers shared by the client's modules: elements, and pictures from art.js. */
 import { CHAMPIONS, COMPONENTS, ICONS, TRAITS, VIEW, shapesOf } from "./art.js";
+import { figureOf } from "./figures.js";
 import { initials } from "./logic.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -72,6 +73,11 @@ function pictureFrom(table, name, extraClass) {
 }
 
 export const portrait = (name) => pictureFrom(CHAMPIONS, name);
+
+/** A champion as it is shown: its 3D figure when that is drawn, else its flat portrait. */
+export function likeness(name, salt = 0) {
+  return figureOf(name, salt) || el("span", { class: "disc" }, [portrait(name)]);
+}
 export const traitGlyph = (name) => pictureFrom(TRAITS, name, "glyph");
 export const componentGlyph = (name) => pictureFrom(COMPONENTS, name, "glyph");
 export const icon = (name) => pictureFrom(ICONS, name, "glyph");

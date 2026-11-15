@@ -52,6 +52,9 @@ STATIC: Mapping[str, tuple[str, str]] = {
     "/logic.js": ("logic.js", "text/javascript; charset=utf-8"),
     "/art.js": ("art.js", "text/javascript; charset=utf-8"),
     "/dom.js": ("dom.js", "text/javascript; charset=utf-8"),
+    "/figures.js": ("figures.js", "text/javascript; charset=utf-8"),
+    "/models.js": ("models.js", "text/javascript; charset=utf-8"),
+    "/studio.js": ("studio.js", "text/javascript; charset=utf-8"),
     "/pieces.js": ("pieces.js", "text/javascript; charset=utf-8"),
     "/scene.js": ("scene.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
@@ -65,7 +68,7 @@ SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
     ("Cache-Control", "no-store"),
     (
         "Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'",
+        "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'",
     ),
 )
 """Headers sent with every response."""

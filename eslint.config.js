@@ -38,4 +38,9 @@ export default [
     languageOptions: { ecmaVersion: 2022, sourceType: "module", globals: globals.node },
     rules: { ...strict, "max-lines-per-function": "off" },
   },
+  {
+    // Browser tests hand functions to the page, where they run with the browser's globals.
+    files: ["tests/web/e2e/**/*.js"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
 ];

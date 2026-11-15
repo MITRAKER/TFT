@@ -3,7 +3,8 @@
  * All game logic lives on the server. The pure helpers are in logic.js, the pictures in art.js,
  * the shared pieces in pieces.js and the fight scene in scene.js.
  */
-import { $, button, clear, decorate, el, icon, portrait, traitGlyph } from "./dom.js";
+import { $, button, clear, decorate, el, icon, likeness, traitGlyph } from "./dom.js";
+import { prepareFigures } from "./figures.js";
 import {
   cellEffect,
   fightText,
@@ -502,7 +503,7 @@ function shopCard(offer, slot) {
       onclick: () => act("buy", [slot]),
     },
     [
-      el("span", { class: "card-art" }, [portrait(offer.name)]),
+      el("span", { class: "card-art" }, [likeness(offer.name, slot)]),
       el("span", { class: "card-traits" }, [traitChip(offer.origin), traitChip(offer.role)]),
       el("span", { class: "card-foot" }, [
         el("span", { class: "card-name", text: offer.name }),
@@ -595,7 +596,7 @@ function unitDetail(state, unit) {
   const champion = fromCatalog("champions", unit.name);
   const strategy = (view.catalog && view.catalog.strategies[unit.role]) || "";
   const head = el("span", { class: "detail-head", data: { origin: unit.origin, cost: unit.cost } }, [
-    el("span", { class: "disc" }, [portrait(unit.name)]),
+    likeness(unit.name),
     el("span", { class: "detail-title" }, [
       el("strong", { text: `${unit.name} ${STAR.repeat(unit.star)}` }),
       el("span", { class: "detail-traits" }, [traitChip(unit.origin), traitChip(unit.role), coins(unit.cost)]),
@@ -1067,6 +1068,19 @@ function wire() {
   document.addEventListener("keydown", onKey);
 }
 
+/** Draw the screen that is showing again: the figures have just become available. */
+function refresh() {
+  renderShowcase();
+  if (view.skipScene || !view.match) {
+    return;
+  }
+  if (!$("game").hidden) {
+    renderGame();
+  } else if (!$("spectate").hidden) {
+    renderSpectate();
+  }
+}
+
 async function start() {
   wire();
   decorate(document);
@@ -1078,6 +1092,10 @@ async function start() {
     renderShowcase();
     await loadLobby();
   });
+  if ((await prepareFigures()) > 0) {
+    document.body.classList.add("has-figures");
+    refresh();
+  }
 }
 
 start();

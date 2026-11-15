@@ -326,6 +326,9 @@ def test_static_files(api: Api) -> None:
         "/logic.js": script,
         "/art.js": script,
         "/dom.js": script,
+        "/figures.js": script,
+        "/models.js": script,
+        "/studio.js": script,
         "/pieces.js": script,
         "/scene.js": script,
         "/style.css": "text/css; charset=utf-8",
@@ -347,17 +350,27 @@ def test_static_files(api: Api) -> None:
     assert api.handle("POST", "/app.js").status == 405
 
 
+def keys_missing_from(script: str, names: list[str]) -> list[str]:
+    """Return the ``names`` that are not keys of a table in the client script ``script``."""
+    return [
+        name
+        for name in names
+        if not re.search(rf'^  "?{re.escape(name)}"?: \[', script, flags=re.MULTILINE)
+    ]
+
+
 def test_the_art_covers_the_roster_the_traits_and_the_components(api: Api) -> None:
     art = api.handle("GET", "/art.js").body.decode("utf-8")
     names = [champion.name for champion in CHAMPIONS]
     names += list(TRAITS)
     names += [str(component) for component in Component]
-    missing = [
-        name
-        for name in names
-        if not re.search(rf'^  "?{re.escape(name)}"?: \[', art, flags=re.MULTILINE)
-    ]
-    assert missing == []
+    assert keys_missing_from(art, names) == []
+    assert keys_missing_from(art, ["Nobody"]) == ["Nobody"]
+
+
+def test_every_champion_has_a_3d_figure(api: Api) -> None:
+    models = api.handle("GET", "/models.js").body.decode("utf-8")
+    assert keys_missing_from(models, [champion.name for champion in CHAMPIONS]) == []
 
 
 # The lobby --------------------------------------------------------------------
@@ -429,7 +442,10 @@ def test_http_round_trip_with_security_headers(server: GameServer) -> None:
     assert headers["Content-Type"] == JSON
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert headers["Cache-Control"] == "no-store"
-    assert "default-src 'self'" in headers["Content-Security-Policy"]
+    policy = headers["Content-Security-Policy"]
+    assert "default-src 'self'" in policy
+    assert "img-src 'self' data: blob:" in policy
+    assert "unsafe" not in policy
     assert headers["Referrer-Policy"] == "no-referrer"
     status, headers, body = fetch(server, "GET", "/")
     assert status == 200
