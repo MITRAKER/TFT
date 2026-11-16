@@ -5,14 +5,17 @@ import { CHAMPIONS } from "../../src/tft/web/art.js";
 import {
   KINDS,
   MODELS,
+  MOTION_ENDS,
   PROPS,
   eyeParts,
   parsePart,
   partsFrom,
   partsOf,
+  pivotOf,
   propPartsOf,
   rgb,
 } from "../../src/tft/web/models.js";
+import { MOTIONS } from "../../src/tft/web/studio.js";
 
 /** The kinds a part can have once eyes are taken apart: the ones the studio has a mesh for. */
 const SOLIDS = Object.values(KINDS).filter((kind) => kind !== "eye");
@@ -33,6 +36,12 @@ describe("the 3D figures", () => {
       assert.ok(part.glow >= 0 && part.glow <= 1, `${name}: glow ${part.glow}`);
       assert.equal(typeof part.bare, "boolean");
       assert.ok(["", "open", "shut"].includes(part.when), `${name}: when ${part.when}`);
+      if (part.motion) {
+        assert.ok(Object.prototype.hasOwnProperty.call(MOTIONS, part.motion), `${name}: ${part.motion}`);
+        assert.ok(part.pivot.length === 3 && part.pivot.every(Number.isFinite), `${name}: pivot`);
+      } else {
+        assert.equal(part.pivot, null);
+      }
     }
   }
 
@@ -51,7 +60,7 @@ describe("the 3D figures", () => {
       const parts = propPartsOf(name);
       assert.ok(parts.length >= 6, `${name} has too few parts`);
       checkParts(name, parts);
-      assert.ok(parts.every((part) => part.when === ""), `${name} does not blink`);
+      assert.ok(parts.every((part) => part.when === "" && part.motion === ""), `${name} stands still`);
     }
     assert.equal(propPartsOf("Pip Squeak"), null);
     assert.equal(propPartsOf("constructor"), null);
@@ -74,6 +83,7 @@ describe("the 3D figures", () => {
     const ears = parts.filter((part) => part.at[1] === 1.66 && part.size[0] === 0.27);
     assert.equal(ears.length, 2);
     assert.deepEqual(ears.map((ear) => ear.at[0]).sort(), [-0.42, 0.42]);
+    assert.deepEqual(ears.map((ear) => ear.pivot[0]).sort(), [-0.42, 0.42]);
     const legs = partsOf("Spread Spider").filter((part) => part.turn[2] !== 0 && part.kind === "ball");
     const left = legs.filter((leg) => leg.at[0] < 0);
     const right = legs.filter((leg) => leg.at[0] > 0);
@@ -135,10 +145,64 @@ describe("the eyes", () => {
 
   /** The eye a part string stands for, before it is taken apart. */
   function partsFromEye(spec) {
-    const { mirrored, ...eye } = parsePart(spec);
-    assert.equal(mirrored, false);
+    const { mirrored, follows, ...eye } = parsePart(spec);
+    assert.deepEqual([mirrored, follows], [false, false]);
     return eye;
   }
+});
+
+describe("the limbs", () => {
+  it("name a motion the studio knows, with a pivot end each", () => {
+    assert.deepEqual(Object.keys(MOTION_ENDS).sort(), Object.keys(MOTIONS).sort());
+    assert.ok(Object.values(MOTION_ENDS).every((end) => ["top", "bottom", "inner", "middle"].includes(end)));
+  });
+
+  it("turn about the end they hang or stand on", () => {
+    const limb = (spec) => partsFrom([spec])[0];
+    const arm = limb("s:arm .6 1 0 | .1 .3 .1 | #ffffff");
+    assert.deepEqual(arm.pivot, [0.6, 1.3, 0]);
+    const ear = limb("s:ear .3 1.8 0 | .1 .2 .05 | #ffffff");
+    assert.deepEqual(ear.pivot, [0.3, 1.6, 0]);
+    const wing = limb("s:wing .7 1 0 | .3 .1 .05 | #ffffff");
+    assert.ok(Math.abs(wing.pivot[0] - 0.4) < 1e-9, "the end nearer the middle of the figure");
+    const left = limb("s:wing -.7 1 0 | .3 .1 .05 | #ffffff");
+    assert.ok(Math.abs(left.pivot[0] + 0.4) < 1e-9);
+    const spark = limb("s:bob .5 1 .2 | .05 .05 .05 | #ffffff");
+    assert.deepEqual(spark.pivot, [0.5, 1, 0.2]);
+    // A turned arm hangs from where its top end has been turned to.
+    const leaning = limb("s:arm .6 1 0 | .1 .3 .1 | #ffffff | 0 0 -90");
+    assert.ok(Math.abs(leaning.pivot[0] - 0.9) < 1e-9 && Math.abs(leaning.pivot[1] - 1) < 1e-9);
+    assert.deepEqual(pivotOf({ ...arm, motion: "leg" }), [0.6, 1.3, 0]);
+  });
+
+  it("take what follows them along, each side with its own limb", () => {
+    const parts = partsFrom([
+      "S:arm .6 1 0 | .1 .3 .1 | #ffffff",
+      "S+ .6 .6 0 | .12 .12 .12 | #ffffff",
+      "b+ .7 .6 .2 | .2 .1 .02 | #ffffff",
+      "s 0 1 0 | .4 .4 .4 | #ffffff",
+    ]);
+    assert.deepEqual(parts.map((part) => part.motion), ["arm", "arm", "arm", "arm", "arm", ""]);
+    const [right, left, rightHand, leftHand, paper, body] = parts;
+    assert.deepEqual(rightHand.pivot, right.pivot);
+    assert.deepEqual(leftHand.pivot, left.pivot);
+    assert.deepEqual(paper.pivot, right.pivot, "a single part goes with the limb of its own side");
+    assert.equal(body.pivot, null);
+  });
+
+  it("lead both sides from the middle, and refuse a follower with nothing to follow", () => {
+    const parts = partsFrom(["c:wag 0 .5 -.5 | .03 .2 .03 | #ffffff", "S+ .1 .8 -.5 | .05 .05 .05 | #ffffff"]);
+    assert.deepEqual(parts.map((part) => part.pivot), [parts[0].pivot, parts[0].pivot, parts[0].pivot]);
+    assert.throws(() => partsFrom(["s+ 0 1 0 | .1 .1 .1 | #ffffff"]), RangeError);
+    assert.throws(() => partsFrom(["s:fly 0 1 0 | .1 .1 .1 | #ffffff"]), RangeError);
+    assert.throws(() => partsFrom(["e:arm 0 1 0 | .1 .1 .05 | #ffffff"]), RangeError);
+    assert.throws(() => partsFrom(["s 0 1 0 | .4 .4 .4 | #ffffff", "e+ 0 1 0 | .1 .1 .05 | #ffffff"]), RangeError);
+  });
+
+  it("give most champions something that moves", () => {
+    const still = Object.keys(MODELS).filter((name) => !partsOf(name).some((part) => part.motion));
+    assert.deepEqual(still, ["Index Drone"]);
+  });
 });
 
 describe("partsFrom", () => {
@@ -148,6 +212,7 @@ describe("partsFrom", () => {
     assert.deepEqual(parts.map((part) => part.glow), [1, 1, 0]);
     assert.deepEqual(parts.map((part) => part.at[0]), [0.3, -0.3, 0]);
     assert.ok(parts.every((part) => part.bare === false && part.when === ""));
+    assert.ok(parts.every((part) => part.motion === "" && part.pivot === null));
   });
 
   it("refuses a list with a part it cannot read", () => {
@@ -160,6 +225,8 @@ describe("parsePart", () => {
     assert.deepEqual(parsePart("s 0 .55 0 | .42 .5 .38 | #ff8000"), {
       kind: "ball",
       mirrored: false,
+      motion: "",
+      follows: false,
       at: [0, 0.55, 0],
       size: [0.42, 0.5, 0.38],
       colour: [1, 128 / 255, 0],
@@ -170,6 +237,10 @@ describe("parsePart", () => {
     assert.equal(lamp.glow, 1);
     assert.deepEqual(lamp.colour, [1, 128 / 255, 0]);
     assert.equal(parsePart("E .2 1 .4 | .1 .1 .05 | #141824").kind, "eye");
+    const arm = parsePart("S:arm .6 1 0 | .1 .3 .1 | #ffffff");
+    assert.deepEqual([arm.kind, arm.mirrored, arm.motion, arm.follows], ["ball", true, "arm", false]);
+    const hand = parsePart("s+ .6 .6 0 | .1 .1 .1 | #ffffff");
+    assert.deepEqual([hand.kind, hand.mirrored, hand.motion, hand.follows], ["ball", false, "", true]);
     const cone = parsePart("K .14 2 -.04 | .06 .36 .06 | #3b2f2a | -10 0 -8");
     assert.equal(cone.kind, "cone");
     assert.equal(cone.mirrored, true);
@@ -189,6 +260,11 @@ describe("parsePart", () => {
       "s 0 0 0 | 1 1 | #000000",
       "s 0 0 0 | 1 1 1 | red",
       "s 0 0 0 | 1 1 1 | #000000!!",
+      "s:run 0 0 0 | 1 1 1 | #000000",
+      "s: 0 0 0 | 1 1 1 | #000000",
+      "s++ 0 0 0 | 1 1 1 | #000000",
+      "s:arm+ 0 0 0 | 1 1 1 | #000000",
+      "ss 0 0 0 | 1 1 1 | #000000",
       "s 0 0 0 | 1 1 1 | !#000000",
       "s 0 0 0 | 1 1 1 | #000000 | 1 2",
       "s 0 0 0 | 1 1 1 | #000000 | 1 2 3 | 4",

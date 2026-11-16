@@ -13,6 +13,15 @@
  *
  * A capital letter makes the part and its mirror image across x = 0: ears, eyes, arms, legs.
  * A colour followed by "!" shines by itself: it is not shaded.
+ *
+ * A kind followed by ":" and a motion is a limb that moves by itself (studio.js says how far):
+ *
+ *   :arm :leg   swing forward and back from their top end, against each other
+ *   :ear        flops sideways from its bottom end         :wing  flaps from its inner end
+ *   :wag        wags from side to side about its bottom end
+ *   :bob        floats up and down                         :tip   one side up, the other down
+ *
+ * A kind followed by "+" moves with the limb before it on its side: a hand with its arm.
  */
 import { turnMatrix } from "./studio.js";
 
@@ -36,14 +45,14 @@ export const MODELS = {
     "s 0 .5 0 | .38 .44 .34 | #9aa3b5",
     "s 0 .46 .14 | .27 .32 .25 | #e9e4da",
     "s 0 1.2 .05 | .5 .44 .44 | #9aa3b5",
-    "S .42 1.66 0 | .27 .27 .08 | #9aa3b5",
-    `S .42 1.66 .05 | .18 .18 .05 | ${PINK}`,
+    "S:ear .42 1.66 0 | .27 .27 .08 | #9aa3b5",
+    `S+ .42 1.66 .05 | .18 .18 .05 | ${PINK}`,
     "s 0 1.08 .4 | .18 .13 .16 | #e9e4da",
     "s 0 1.13 .55 | .06 .05 .05 | #f4739a",
     `E .2 1.3 .4 | .1 .125 .07 | ${INK}`,
     `S .36 1.12 .32 | .08 .05 .05 | ${BLUSH}`,
-    `S .19 .07 .12 | .14 .08 .2 | ${PINK}`,
-    `c .46 .3 -.25 | .04 .32 .04 | ${PINK} | 0 0 -50`,
+    `S:leg .19 .07 .12 | .14 .08 .2 | ${PINK}`,
+    `c:wag .46 .3 -.25 | .04 .32 .04 | ${PINK} | 0 0 -50`,
     "t 0 .84 .02 | .32 .5 .3 | #2ec7c9",
   ],
   "Index Drone": [
@@ -66,15 +75,15 @@ export const MODELS = {
     "s 0 .54 .2 | .42 .46 .36 | #fbe9c8",
     "s 0 1.32 .06 | .52 .45 .46 | #e8a657",
     "S .31 1.18 .28 | .21 .18 .18 | #fbe9c8",
-    "S .33 1.72 0 | .15 .16 .07 | #e8a657",
-    `S .33 1.72 .04 | .09 .1 .04 | ${PINK}`,
+    "S:ear .33 1.72 0 | .15 .16 .07 | #e8a657",
+    `S+ .33 1.72 .04 | .09 .1 .04 | ${PINK}`,
     `E .19 1.44 .44 | .09 .115 .06 | ${INK}`,
     "s 0 1.3 .53 | .055 .045 .04 | #f4739a",
     `S .4 1.26 .42 | .07 .045 .04 | ${BLUSH}`,
     "S .34 .8 .34 | .12 .1 .16 | #e8a657",
     "k 0 .9 .56 | .17 .12 .17 | #9fecff!",
     "k 0 .68 .56 | .17 .1 .17 | #4fc3f7 | 180 0 0",
-    `S .26 .07 .16 | .16 .08 .22 | ${PINK}`,
+    `S:leg .26 .07 .16 | .16 .08 .22 | ${PINK}`,
   ],
   "Barrel Bo": [
     "c 0 .95 0 | .52 .68 .52 | #b5733c",
@@ -84,10 +93,10 @@ export const MODELS = {
     `E .2 1.06 .5 | .11 .13 .06 | ${INK}`,
     `b 0 .8 .52 | .13 .03 .03 | ${INK}`,
     `S .37 .88 .39 | .07 .04 .04 | ${BLUSH}`,
-    "S .64 .95 0 | .1 .26 .1 | #8a5a33 | 0 0 -18",
-    `S .74 .68 0 | .12 .12 .12 | ${SKIN}`,
-    "S .22 .16 0 | .1 .18 .1 | #5b4636",
-    "S .22 .05 .08 | .14 .06 .2 | #2a2f45",
+    "S:arm .64 .95 0 | .1 .26 .1 | #8a5a33 | 0 0 -18",
+    `S+ .74 .68 0 | .12 .12 .12 | ${SKIN}`,
+    "S:leg .22 .16 0 | .1 .18 .1 | #5b4636",
+    "S+ .22 .05 .08 | .14 .06 .2 | #2a2f45",
     "c 0 .64 .53 | .05 .04 .05 | #d8b25a | 90 0 0",
   ],
   "Coupon Clerk": [
@@ -100,9 +109,9 @@ export const MODELS = {
     `E .17 1.42 .38 | .085 .1 .05 | ${INK}`,
     "T .17 1.42 .44 | .12 .22 .12 | #1b2540 | 90 0 0",
     "b 0 1.2 .39 | .07 .02 .02 | #b0705a",
-    "S .5 .76 .1 | .1 .24 .1 | #2f6f5e | 0 0 -25",
-    "b .62 .62 .34 | .2 .12 .02 | #ffe9a8 | 0 -20 10",
-    "S .2 .06 .1 | .15 .07 .2 | #1b2540",
+    "S:arm .5 .76 .1 | .1 .24 .1 | #2f6f5e | 0 0 -25",
+    "b+ .62 .62 .34 | .2 .12 .02 | #ffe9a8 | 0 -20 10",
+    "S:leg .2 .06 .1 | .15 .07 .2 | #1b2540",
   ],
   "Candle Reader": [
     "k 0 .6 0 | .52 .64 .48 | #6a48c7",
@@ -113,9 +122,9 @@ export const MODELS = {
     `s 0 1.92 .3 | .06 .06 .03 | ${GOLD}!`,
     `E .15 1.43 .34 | .075 .09 .045 | ${INK}`,
     `S .15 1.56 .33 | .09 .025 .03 | ${WHITE} | 0 0 12`,
-    "c .68 1.1 .2 | .02 .62 .02 | #dfe6f3",
-    "b .68 1.15 .2 | .09 .26 .09 | #35d49a!",
-    "S .5 .9 .12 | .09 .2 .09 | #6a48c7 | 0 0 -30",
+    "S:arm .5 .9 .12 | .09 .2 .09 | #6a48c7 | 0 0 -30",
+    "c+ .68 1.1 .2 | .02 .62 .02 | #dfe6f3",
+    "b+ .68 1.15 .2 | .09 .26 .09 | #35d49a!",
   ],
   "Gap Gazelle": [
     "s 0 .66 0 | .38 .48 .34 | #d9a066",
@@ -125,10 +134,10 @@ export const MODELS = {
     "s 0 1.36 .42 | .17 .14 .16 | #f6e6c8",
     "s 0 1.4 .57 | .06 .05 .04 | #2a2f45",
     `E .2 1.56 .35 | .08 .105 .05 | ${INK}`,
-    "S .38 1.64 0 | .17 .08 .06 | #d9a066 | 0 0 -25",
+    "S:wing .38 1.64 0 | .17 .08 .06 | #d9a066 | 0 0 -25",
     "K .14 2.04 -.04 | .06 .36 .06 | #3b2f2a | -10 0 -8",
-    "S .18 .18 0 | .08 .2 .08 | #d9a066",
-    "S .18 .04 .02 | .1 .05 .12 | #3b2f2a",
+    "S:leg .18 .18 0 | .08 .2 .08 | #d9a066",
+    "S+ .18 .04 .02 | .1 .05 .12 | #3b2f2a",
     "t 0 1 .03 | .21 .3 .21 | #4a8cf7",
     "s 0 .58 -.34 | .08 .08 .08 | #f6e6c8",
   ],
@@ -136,7 +145,7 @@ export const MODELS = {
     "k 0 .62 0 | .54 .66 .48 | #2f4f9e",
     `t 0 1.12 0 | .26 .4 .24 | ${WHITE}`,
     `s 0 1.44 0 | .41 .39 .39 | ${SKIN}`,
-    `t 0 2.06 0 | .3 .2 .3 | ${GOLD}!`,
+    `t:bob 0 2.06 0 | .3 .2 .3 | ${GOLD}!`,
     `S .15 1.46 .36 | .085 .022 .03 | ${INK} | 0 0 8`,
     `S .3 1.34 .3 | .07 .04 .04 | ${BLUSH}`,
     "b 0 1.28 .38 | .05 .015 .02 | #b0705a",
@@ -150,10 +159,10 @@ export const MODELS = {
     "s 0 .74 .32 | .4 .36 .36 | #4b3d6e",
     `E .17 .86 .6 | .13 .145 .08 | ${INK}`,
     `S .36 1 .46 | .05 .05 .04 | ${WHITE}!`,
-    "S .7 .42 .46 | .045 .44 .045 | #2a2140 | 20 0 -55",
-    "S .76 .42 .16 | .045 .44 .045 | #2a2140 | 6 0 -55",
-    "S .76 .42 -.16 | .045 .44 .045 | #2a2140 | -6 0 -55",
-    "S .7 .42 -.46 | .045 .44 .045 | #2a2140 | -20 0 -55",
+    "S:wag .7 .42 .46 | .045 .44 .045 | #2a2140 | 20 0 -55",
+    "S:wag .76 .42 .16 | .045 .44 .045 | #2a2140 | 6 0 -55",
+    "S:wag .76 .42 -.16 | .045 .44 .045 | #2a2140 | -6 0 -55",
+    "S:wag .7 .42 -.46 | .045 .44 .045 | #2a2140 | -20 0 -55",
     `K .08 .56 .64 | .04 .08 .04 | ${WHITE} | 180 0 0`,
   ],
   "Gold Bug": [
@@ -161,11 +170,11 @@ export const MODELS = {
     "b 0 .9 -.1 | .02 .26 .5 | #8a5a14",
     "s 0 .62 .5 | .36 .32 .32 | #3b2f2a",
     `E .17 .74 .74 | .11 .12 .065 | ${INK}`,
-    "K .14 1.08 .62 | .03 .2 .03 | #3b2f2a | 25 0 -15",
-    `S .2 1.26 .72 | .05 .05 .05 | ${GOLD}!`,
-    "S .6 .22 .25 | .05 .2 .05 | #3b2f2a | 0 0 -40",
-    "S .64 .22 -.05 | .05 .2 .05 | #3b2f2a | 0 0 -40",
-    "S .6 .22 -.35 | .05 .2 .05 | #3b2f2a | 0 0 -40",
+    "K:ear .14 1.08 .62 | .03 .2 .03 | #3b2f2a | 25 0 -15",
+    `S+ .2 1.26 .72 | .05 .05 .05 | ${GOLD}!`,
+    "S:leg .6 .22 .25 | .05 .2 .05 | #3b2f2a | 0 0 -40",
+    "S:leg .64 .22 -.05 | .05 .2 .05 | #3b2f2a | 0 0 -40",
+    "S:leg .6 .22 -.35 | .05 .2 .05 | #3b2f2a | 0 0 -40",
     "S .25 .98 .1 | .08 .04 .1 | #ffe38f",
   ],
   "Stable Coin": [
@@ -176,9 +185,9 @@ export const MODELS = {
     "b 0 .84 .15 | .12 .03 .02 | #8a5a14",
     `S .4 .92 .13 | .08 .05 .02 | ${BLUSH}`,
     "K .3 1.78 0 | .1 .14 .06 | #e09a1b",
-    "S .26 .16 0 | .08 .18 .08 | #8a5a14",
-    "S .26 .04 .05 | .13 .05 .18 | #2a2f45",
-    "S .8 .95 0 | .08 .2 .08 | #e09a1b | 0 0 -30",
+    "S:leg .26 .16 0 | .08 .18 .08 | #8a5a14",
+    "S+ .26 .04 .05 | .13 .05 .18 | #2a2f45",
+    "S:arm .8 .95 0 | .08 .2 .08 | #e09a1b | 0 0 -30",
   ],
   "Yield Yeti": [
     "s 0 .78 0 | .68 .76 .56 | #eef2f8",
@@ -188,9 +197,9 @@ export const MODELS = {
     "b 0 1.33 .5 | .12 .03 .02 | #1b2540",
     "S .07 1.3 .51 | .03 .04 .02 | #ffffff",
     "K .34 2 0 | .1 .2 .1 | #bfe3ff | 0 0 -20",
-    "S .78 .82 .05 | .2 .44 .2 | #eef2f8 | 0 0 -12",
-    "S .86 .4 .1 | .2 .16 .2 | #8fb8e8",
-    "S .34 .08 .14 | .26 .1 .3 | #8fb8e8",
+    "S:arm .78 .82 .05 | .2 .44 .2 | #eef2f8 | 0 0 -12",
+    "S+ .86 .4 .1 | .2 .16 .2 | #8fb8e8",
+    "S:leg .34 .08 .14 | .26 .1 .3 | #8fb8e8",
     "S .5 1.2 -.1 | .2 .2 .2 | #ffffff",
   ],
   "Breakout Bull": [
@@ -203,11 +212,11 @@ export const MODELS = {
     `E .21 1.58 .44 | .085 .1 .05 | ${INK}`,
     "S .21 1.71 .46 | .11 .03 .04 | #5b2a1e | 0 0 22",
     `K .52 1.84 .05 | .1 .3 .1 | ${WHITE} | 0 0 -42`,
-    "S .5 1.54 0 | .14 .08 .06 | #a8442e",
-    "S .7 .86 .1 | .17 .34 .17 | #a8442e | 0 0 -14",
-    "S .78 .48 .14 | .17 .15 .17 | #5b2a1e",
-    "S .28 .18 0 | .15 .2 .15 | #a8442e",
-    "S .28 .05 .04 | .17 .07 .2 | #2a2f45",
+    "S:wing .5 1.54 0 | .14 .08 .06 | #a8442e",
+    "S:arm .7 .86 .1 | .17 .34 .17 | #a8442e | 0 0 -14",
+    "S+ .78 .48 .14 | .17 .15 .17 | #5b2a1e",
+    "S:leg .28 .18 0 | .15 .2 .15 | #a8442e",
+    "S+ .28 .05 .04 | .17 .07 .2 | #2a2f45",
     "t 0 .5 0 | .56 .25 .46 | #4a8cf7",
   ],
   "Bear Baron": [
@@ -218,16 +227,16 @@ export const MODELS = {
     "s 0 1.34 .42 | .21 .17 .16 | #c9a27a",
     "s 0 1.4 .57 | .07 .05 .04 | #1b1b22",
     `E .2 1.54 .41 | .08 .095 .05 | ${INK}`,
-    "S .36 1.82 0 | .15 .15 .08 | #7a4e2d",
+    "S:ear .36 1.82 0 | .15 .15 .08 | #7a4e2d",
     `c 0 1.9 .02 | .22 .07 .22 | ${GOLD}`,
     `K .14 2.03 .02 | .05 .08 .05 | ${GOLD}`,
     `k 0 2.05 .12 | .05 .09 .05 | ${GOLD}`,
     "s 0 1.91 .22 | .05 .05 .03 | #ff6470!",
-    "S .68 .84 .06 | .17 .36 .17 | #7a4e2d | 0 0 -14",
-    "S .28 .08 .12 | .2 .09 .26 | #5b3a20",
+    "S:arm .68 .84 .06 | .17 .36 .17 | #7a4e2d | 0 0 -14",
+    "S:leg .28 .08 .12 | .2 .09 .26 | #5b3a20",
   ],
   "Vol Vampire": [
-    "S .8 1.1 -.2 | .44 .3 .04 | #6a48c7 | 0 -25 -25",
+    "S:wing .8 1.1 -.2 | .44 .3 .04 | #6a48c7 | 0 -25 -25",
     "k 0 .62 0 | .46 .64 .4 | #2a2140",
     "K .3 1.3 -.12 | .16 .3 .08 | #b3273a | 0 0 -18",
     "s 0 1.44 .04 | .42 .39 .39 | #dfe6f3",
@@ -236,7 +245,7 @@ export const MODELS = {
     "E .16 1.46 .37 | .085 .095 .05 | #d81e38",
     "S .08 1.24 .37 | .025 .06 .02 | #ffffff",
     "b 0 1.29 .4 | .09 .015 .02 | #5a2030",
-    "S .18 .05 .1 | .12 .06 .18 | #1b1b22",
+    "S:leg .18 .05 .1 | .12 .06 .18 | #1b1b22",
   ],
   "Carry Caravan": [
     "s 0 .82 -.1 | .5 .42 .66 | #d7a55f",
@@ -246,12 +255,12 @@ export const MODELS = {
     "s 0 1.72 .62 | .26 .22 .3 | #d7a55f",
     "s 0 1.64 .86 | .16 .12 .14 | #f1d9b5",
     `E .16 1.81 .8 | .07 .085 .045 | ${INK}`,
-    "S .22 1.94 .52 | .07 .1 .04 | #d7a55f",
-    "S .3 .3 .3 | .09 .32 .09 | #c08f4a",
-    "S .3 .3 -.5 | .09 .32 .09 | #c08f4a",
+    "S:ear .22 1.94 .52 | .07 .1 .04 | #d7a55f",
+    "S:leg .3 .3 .3 | .09 .32 .09 | #c08f4a",
+    "S:leg .3 .3 -.5 | .09 .32 .09 | #c08f4a",
     "b 0 1.06 -.12 | .52 .05 .3 | #2ec7c9",
     "S .56 .9 -.12 | .14 .2 .22 | #8a5a33",
-    "c 0 .86 -.78 | .03 .16 .03 | #c08f4a | 30 0 0",
+    "c:wag 0 .86 -.78 | .03 .16 .03 | #c08f4a | -150 0 0",
   ],
   "Miner Mole": [
     "s 0 .62 0 | .54 .62 .48 | #5a4a52",
@@ -264,10 +273,10 @@ export const MODELS = {
     "c 0 1.52 .1 | .48 .03 .48 | #e09a1b",
     `c 0 1.66 .42 | .09 .05 .09 | ${WHITE} | 90 0 0`,
     "s 0 1.66 .48 | .06 .06 .03 | #ffffaa!",
-    `S .6 .7 .2 | .16 .12 .14 | ${PINK}`,
+    `S:arm .6 .7 .2 | .16 .12 .14 | ${PINK}`,
     "c .75 .98 .24 | .03 .46 .03 | #8a5a33 | 0 0 -12",
     "b .83 1.42 .24 | .26 .05 .05 | #9aa3b5 | 0 0 -12",
-    `S .24 .07 .14 | .18 .08 .24 | ${PINK}`,
+    `S:leg .24 .07 .14 | .18 .08 .24 | ${PINK}`,
   ],
   "Crude Colossus": [
     "b 0 1 0 | .56 .5 .4 | #4a4f5e",
@@ -277,10 +286,10 @@ export const MODELS = {
     "S .12 1.75 .29 | .07 .05 .03 | #ffb054!",
     "b 0 1.61 .29 | .12 .02 .02 | #2a2d38",
     "S .78 1.36 0 | .26 .24 .26 | #5b6172",
-    "S .86 .82 .04 | .2 .42 .2 | #4a4f5e",
-    "S .88 .34 .08 | .24 .2 .24 | #3b3f4c",
-    "S .28 .26 0 | .2 .28 .2 | #4a4f5e",
-    "S .28 .06 .06 | .24 .08 .28 | #3b3f4c",
+    "S:arm .86 .82 .04 | .2 .42 .2 | #4a4f5e",
+    "S+ .88 .34 .08 | .24 .2 .24 | #3b3f4c",
+    "S:leg .28 .26 0 | .2 .28 .2 | #4a4f5e",
+    "S+ .28 .06 .06 | .24 .08 .28 | #3b3f4c",
     "s .2 1.5 .34 | .06 .1 .04 | #1b1b22",
   ],
   "Market Maker": [
@@ -292,10 +301,10 @@ export const MODELS = {
     "s -.14 1.47 .39 | .065 .055 .02 | #35d49a!",
     "s .14 1.47 .39 | .065 .055 .02 | #ff6470!",
     "c 0 1.92 0 | .02 .14 .02 | #8e9bb6",
-    `s 0 2.08 0 | .06 .06 .06 | ${GOLD}!`,
+    `s:bob 0 2.08 0 | .06 .06 .06 | ${GOLD}!`,
     "S .72 1.02 0 | .3 .05 .05 | #8e9bb6",
-    `S 1 .86 0 | .22 .04 .22 | ${GOLD}`,
-    "S 1 .93 0 | .1 .04 .1 | #e09a1b",
+    `S:tip 1 .86 0 | .22 .04 .22 | ${GOLD}`,
+    "S+ 1 .93 0 | .1 .04 .1 | #e09a1b",
   ],
   "Fed Whisperer": [
     "s 0 .72 0 | .56 .7 .48 | #8a6a4a",
@@ -304,12 +313,12 @@ export const MODELS = {
     "S .21 1.5 .34 | .22 .22 .1 | #e9d7b8",
     "E .21 1.5 .42 | .14 .15 .06 | #e09a1b",
     "k 0 1.36 .48 | .07 .1 .07 | #e09a1b | 150 0 0",
-    "K .36 1.92 0 | .1 .16 .06 | #6b4f36 | 0 0 -25",
-    "S .58 .78 0 | .14 .44 .3 | #6b4f36 | 0 0 -10",
+    "K:ear .36 1.92 0 | .1 .16 .06 | #6b4f36 | 0 0 -25",
+    "S:wing .58 .78 0 | .14 .44 .3 | #6b4f36 | 0 0 -10",
     `t .21 1.5 .5 | .17 .15 .17 | ${GOLD} | 90 0 0`,
     "S .09 1.08 .4 | .09 .06 .04 | #36c98f",
     "s 0 1.08 .42 | .04 .04 .03 | #1f8f68",
-    "S .2 .05 .16 | .12 .05 .16 | #e09a1b",
+    "S:leg .2 .05 .16 | .12 .05 .16 | #e09a1b",
   ],
   "Flash Crash": [
     "s 0 1.7 0 | .5 .26 .36 | #6f7c99",
@@ -320,8 +329,8 @@ export const MODELS = {
     "k .06 .4 .1 | .16 .3 .08 | #ffb300! | 180 0 12",
     `E .18 1.68 .33 | .085 .085 .05 | ${INK}`,
     "S .18 1.8 .36 | .1 .028 .03 | #2f3850 | 0 0 24",
-    "s .7 1 .2 | .06 .06 .06 | #fff3b0!",
-    "s -.66 .6 .1 | .05 .05 .05 | #fff3b0!",
+    "s:bob .7 1 .2 | .06 .06 .06 | #fff3b0!",
+    "s:bob -.66 .6 .1 | .05 .05 .05 | #fff3b0!",
   ],
   "Whale Watcher": [
     "s 0 .82 0 | .72 .62 .8 | #3f73c8",
@@ -329,16 +338,16 @@ export const MODELS = {
     `E .43 .98 .57 | .1 .115 .055 | ${INK} | 0 35 0`,
     "b 0 .68 .8 | .2 .025 .03 | #1b2540",
     `S .56 .8 .5 | .08 .05 .04 | ${BLUSH}`,
-    "S .78 .56 .2 | .26 .06 .18 | #2f5aa6 | 0 0 -28",
+    "S:wing .78 .56 .2 | .26 .06 .18 | #2f5aa6 | 0 0 -28",
     "s 0 .9 -.86 | .2 .16 .26 | #3f73c8",
-    "S .3 1.06 -1.06 | .26 .05 .16 | #2f5aa6 | 0 30 20",
+    "S:wing .3 1.06 -1.06 | .26 .05 .16 | #2f5aa6 | 0 30 20",
     "c 0 1.56 .1 | .05 .14 .05 | #bfe3ff",
-    "S .16 1.78 .1 | .09 .09 .09 | #bfe3ff",
-    "s 0 1.9 .1 | .1 .1 .1 | #e8f6ff",
+    "S:bob .16 1.78 .1 | .09 .09 .09 | #bfe3ff",
+    "s:bob 0 1.9 .1 | .1 .1 .1 | #e8f6ff",
   ],
   "Black Swan": [
     "s 0 .6 -.1 | .56 .44 .7 | #1d2030",
-    "S .42 .74 -.2 | .2 .3 .5 | #2a2f45 | 0 0 -10",
+    "S:wing .42 .74 -.2 | .2 .3 .5 | #2a2f45 | 0 0 -10",
     "k 0 .78 -.86 | .2 .26 .12 | #1d2030 | -60 0 0",
     "s 0 1 .42 | .16 .2 .16 | #1d2030",
     "s 0 1.3 .5 | .14 .2 .14 | #1d2030",
@@ -347,8 +356,8 @@ export const MODELS = {
     "k 0 1.74 .82 | .08 .16 .07 | #e23b4a | 90 0 0",
     `s 0 1.78 .7 | .09 .07 .08 | ${WHITE}`,
     "E .13 1.87 .68 | .06 .065 .035 | #e23b4a",
-    "S .2 .2 0 | .04 .14 .04 | #3b3f4c",
-    "S .2 .06 .1 | .14 .05 .2 | #3b3f4c",
+    "S:leg .2 .2 0 | .04 .14 .04 | #3b3f4c",
+    "S+ .2 .06 .1 | .14 .05 .2 | #3b3f4c",
     "t 0 1.14 .46 | .16 .3 .16 | #4a8cf7",
   ],
   "Central Banker": [
@@ -362,10 +371,10 @@ export const MODELS = {
     "c 0 1.78 0 | .3 .22 .3 | #1b1b22",
     "c 0 1.56 0 | .46 .03 .46 | #1b1b22",
     "c 0 1.62 0 | .31 .05 .31 | #36c98f",
-    "S .74 .9 0 | .1 .3 .1 | #5b6788 | 0 0 -16",
-    `S .82 .56 0 | .12 .12 .12 | ${WHITE}`,
-    "S .28 .2 0 | .1 .2 .1 | #5b6788",
-    "S .28 .05 .06 | .16 .07 .22 | #1b1b22",
+    "S:arm .74 .9 0 | .1 .3 .1 | #5b6788 | 0 0 -16",
+    `S+ .82 .56 0 | .12 .12 .12 | ${WHITE}`,
+    "S:leg .28 .2 0 | .1 .2 .1 | #5b6788",
+    "S+ .28 .05 .06 | .16 .07 .22 | #1b1b22",
   ],
   "Algo Overlord": [
     "b 0 .8 -.4 | .5 .62 .04 | #6a48c7 | 8 0 0",
@@ -376,11 +385,11 @@ export const MODELS = {
     `K .26 1.98 0 | .05 .16 .05 | ${GOLD}`,
     `k 0 2.04 0 | .06 .2 .06 | ${GOLD}`,
     "S .66 1.26 0 | .2 .16 .22 | #a070ff",
-    "S .72 .8 .02 | .12 .34 .12 | #3b4160",
-    "S .74 .4 .04 | .15 .13 .15 | #6a48c7",
-    "S .24 .2 0 | .13 .22 .13 | #2a2f45",
-    "S .24 .05 .05 | .17 .07 .22 | #3b4160",
-    "S .98 1.6 .1 | .09 .09 .09 | #d6bbff!",
+    "S:arm .72 .8 .02 | .12 .34 .12 | #3b4160",
+    "S+ .74 .4 .04 | .15 .13 .15 | #6a48c7",
+    "S:leg .24 .2 0 | .13 .22 .13 | #2a2f45",
+    "S+ .24 .05 .05 | .17 .07 .22 | #3b4160",
+    "S:bob .98 1.6 .1 | .09 .09 .09 | #d6bbff!",
   ],
 };
 
@@ -441,6 +450,18 @@ export const PROPS = {
 };
 
 const COLOUR = /^#[0-9a-f]{6}!?$/i;
+const KIND = /^([a-z])(?::([a-z]+)|(\+))?$/i;
+
+/** Where each motion's pivot is on the part: the end the limb hangs or stands on. */
+export const MOTION_ENDS = {
+  arm: "top",
+  leg: "top",
+  ear: "bottom",
+  wag: "bottom",
+  wing: "inner",
+  bob: "middle",
+  tip: "middle",
+};
 const EYE_WHITE = [0.985, 0.98, 0.955];
 const SHINE = [1, 1, 1];
 const LID = [0.17, 0.13, 0.2];
@@ -460,22 +481,31 @@ export function rgb(colour) {
   return [1, 3, 5].map((start) => parseInt(colour.slice(start, start + 2), 16) / 255);
 }
 
+/** The first word of a part: its kind, whether it is mirrored, its motion, whether it follows. */
+function readKind(word, spec) {
+  const [, letter, motion, plus] = KIND.exec(word) || [];
+  const kind = letter && KINDS[letter.toLowerCase()];
+  const known = !motion || Object.prototype.hasOwnProperty.call(MOTION_ENDS, motion);
+  if (!kind || !known || (kind === "eye" && (motion || plus))) {
+    throw new RangeError(`cannot read the part "${spec}"`);
+  }
+  return { kind, mirrored: letter !== letter.toLowerCase(), motion: motion || "", follows: Boolean(plus) };
+}
+
 /**
- * Split one part string into `{ kind, mirrored, at, size, colour, turn, glow }`.
+ * Split one part string into `{ kind, mirrored, motion, follows, at, size, colour, turn, glow }`.
  *
  * Throws a RangeError for a part it cannot read, so a typo never reaches the screen.
  */
 export function parsePart(spec) {
   const fields = String(spec).split("|").map((field) => field.trim());
-  const [letter, ...place] = (fields[0] || "").split(/\s+/);
-  const kind = KINDS[letter.toLowerCase()];
+  const [word, ...place] = (fields[0] || "").split(/\s+/);
   const colour = fields[2] || "";
-  if (!kind || fields.length < 3 || fields.length > 4 || !COLOUR.test(colour)) {
+  if (fields.length < 3 || fields.length > 4 || !COLOUR.test(colour)) {
     throw new RangeError(`cannot read the part "${spec}"`);
   }
   return {
-    kind,
-    mirrored: letter !== letter.toLowerCase(),
+    ...readKind(word, spec),
     at: numbers(place.join(" "), 3, spec),
     size: numbers(fields[1], 3, spec),
     colour: rgb(colour),
@@ -518,6 +548,8 @@ export function eyeParts(eye) {
     glow,
     bare: true,
     when,
+    motion: "",
+    pivot: null,
   });
   const parts = [
     { ...ball([0, 0, 0], eye.size, EYE_WHITE, 0.55, "open"), bare: false },
@@ -534,12 +566,55 @@ export function eyeParts(eye) {
   return parts;
 }
 
-/** Every part that a list of part strings stands for: mirror images made, eyes taken apart. */
+/** The point a limb turns about: the end of the part that its motion names. */
+export function pivotOf(part) {
+  const [wide, high] = part.size;
+  const end = MOTION_ENDS[part.motion];
+  if (end === "top" || end === "bottom") {
+    return placed(part, [0, end === "top" ? high : -high, 0]);
+  }
+  if (end === "inner") {
+    const ends = [placed(part, [wide, 0, 0]), placed(part, [-wide, 0, 0])];
+    return Math.abs(ends[0][0]) <= Math.abs(ends[1][0]) ? ends[0] : ends[1];
+  }
+  return part.at;
+}
+
+/**
+ * One side of a part as the studio draws it. `leads` remembers the last limb of each side, so
+ * that a part which follows gets that limb's motion and pivot; a limb in the middle leads both.
+ */
+function solid(side, mirrored, follows, leads, spec) {
+  const key = side.at[0] < 0 ? "left" : "right";
+  let lead = null;
+  if (follows) {
+    lead = leads[key];
+    if (!lead) {
+      throw new RangeError(`the part "${spec}" has no limb to move with`);
+    }
+  } else if (side.motion) {
+    lead = { motion: side.motion, pivot: pivotOf(side) };
+    leads[key] = lead;
+    if (!mirrored) {
+      leads.left = lead;
+      leads.right = lead;
+    }
+  }
+  return { ...side, motion: lead ? lead.motion : "", pivot: lead ? lead.pivot : null, bare: false, when: "" };
+}
+
+/**
+ * Every part that a list of part strings stands for: mirror images made, eyes taken apart,
+ * limbs given the point they turn about.
+ */
 export function partsFrom(specs) {
+  const leads = { left: null, right: null };
   return specs.flatMap((spec) => {
-    const { mirrored, ...part } = parsePart(spec);
+    const { mirrored, follows, ...part } = parsePart(spec);
     const sides = mirrored ? [part, mirror(part)] : [part];
-    return sides.flatMap((side) => (side.kind === "eye" ? eyeParts(side) : [{ ...side, bare: false, when: "" }]));
+    return sides.flatMap((side) =>
+      side.kind === "eye" ? eyeParts(side) : [solid(side, mirrored, follows, leads, spec)],
+    );
   });
 }
 

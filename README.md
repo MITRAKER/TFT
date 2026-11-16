@@ -125,8 +125,8 @@ What the client shows:
 Keyboard: `D` rerolls, `F` buys experience, `E` sells the selected unit and
 `Escape` closes a dialog or drops the selection.
 
-Every unit is drawn as a 3D figure that breathes, sways and blinks, and the
-board stands in an arena: a night skyline of candlestick towers, a raised
+Every unit is drawn as a 3D figure that breathes, sways and blinks, and swings
+its arms and legs when it runs. The board stands in an arena: a night skyline of candlestick towers, a raised
 platform, statues of the bull and the bear, pylons with turning coins and the
 opening bell. The client builds the figures and the arena's props itself with
 WebGL when the page loads; until they are drawn, and in a browser without

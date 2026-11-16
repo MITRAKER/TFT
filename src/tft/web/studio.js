@@ -49,32 +49,60 @@ export const BLINK_FRAME = 5;
  */
 function runPose(yaw, turn) {
   const hop = Math.abs(Math.sin(turn));
-  return { yaw: yaw + 7 * Math.sin(turn), lean: 14, squash: 0.93 + 0.12 * hop, lift: 0.06 + 0.26 * hop };
+  return {
+    yaw: yaw + 7 * Math.sin(turn),
+    lean: 14,
+    squash: 0.93 + 0.12 * hop,
+    lift: 0.06 + 0.26 * hop,
+    stride: turn,
+    effort: 1,
+  };
 }
 
 const POSES = {
-  // Standing: the figure sways from side to side and breathes.
+  // Standing: the figure sways from side to side and breathes; its limbs barely move.
   idle: (turn) => ({
     yaw: -22 + 15 * Math.sin(turn),
     lean: 0,
     squash: 1 + 0.03 * Math.sin(turn + Math.PI / 2),
     lift: 0,
+    stride: turn,
+    effort: 0,
   }),
-  // Running at the enemy, seen from behind.
+  // Running at the enemy, seen from behind: one stride of the limbs for the two hops.
   back: (turn) => runPose(158, turn),
   // The same run seen from the front: the opposing board.
   charge: (turn) => runPose(22, turn),
-  // A win: one full turn during a jump.
+  // A win: one full turn during a jump, the limbs kicking twice.
   spin: (turn) => ({
     yaw: -22 + (360 * turn) / FULL_TURN,
     lean: 0,
     squash: 1 + 0.08 * Math.sin(turn / 2),
     lift: 0.55 * Math.sin(turn / 2),
+    stride: 2 * turn,
+    effort: 0.45,
   }),
   // A thing in the arena, seen a little from the side.
-  still: () => ({ yaw: -28, lean: 0, squash: 1, lift: 0 }),
+  still: () => ({ yaw: -28, lean: 0, squash: 1, lift: 0, stride: 0, effort: 0 }),
   // The same thing turning once about itself.
-  turn: (turn) => ({ yaw: (360 * turn) / FULL_TURN, lean: 0, squash: 1, lift: 0 }),
+  turn: (turn) => ({ yaw: (360 * turn) / FULL_TURN, lean: 0, squash: 1, lift: 0, stride: 0, effort: 0 }),
+};
+
+/**
+ * How the limbs of a figure move by themselves. A limb turns about an axis through its pivot,
+ * by `idle` degrees each way while the figure stands and by `run` degrees while it runs, and
+ * `lag` shifts it in the stride. A `sided` limb moves against its mirror image: one arm forward
+ * and the other back, both ears out and both in. The axis "lift" is not a turn: the part floats
+ * up and down by that many model units.
+ */
+export const MOTIONS = {
+  arm: { axis: "x", idle: 5, run: 36, sided: true, lag: 0 },
+  leg: { axis: "x", idle: 0, run: 30, sided: true, lag: Math.PI },
+  ear: { axis: "z", idle: 5, run: 14, sided: true, lag: 1 },
+  wing: { axis: "z", idle: 8, run: 26, sided: true, lag: 0 },
+  wag: { axis: "y", idle: 12, run: 28, sided: false, lag: 0.6 },
+  bob: { axis: "lift", idle: 0.035, run: 0.06, sided: false, lag: 0 },
+  tip: { axis: "lift", idle: 0.04, run: 0.07, sided: true, lag: 0 },
 };
 
 /** How many frames a clip has; throws a RangeError for a name that is not a clip. */
@@ -88,8 +116,9 @@ export function framesOf(clip) {
 /**
  * The pose of the whole figure in one frame of a clip: `yaw` turns it about the vertical axis
  * and `lean` tilts it forward about the ground, both in degrees; `squash` scales its height and
- * keeps its volume; `lift` is its height above the ground in model units; `blink` says whether
- * its eyes are shut.
+ * keeps its volume; `lift` is its height above the ground in model units; `stride` is where
+ * its limbs are in their swing, in radians, and `effort` how far they swing, from 0 standing to
+ * 1 running; `blink` says whether its eyes are shut.
  */
 export function poseOf(clip, frame) {
   const pose = POSES[clip]((FULL_TURN * frame) / framesOf(clip));
@@ -348,6 +377,49 @@ export function viewMatrix(yaw, lean = 0) {
   return multiply(aboutX(PITCH_DEGREES), multiply(aboutY(yaw), aboutX(lean)));
 }
 
+const ABOUT = { x: aboutX, y: aboutY, z: aboutZ };
+
+/** How far a limb is from its rest in a pose: degrees for a turn, model units for a lift. */
+export function swingOf(part, pose) {
+  const motion = MOTIONS[part.motion];
+  const side = motion.sided && part.at[0] < 0 ? -1 : 1;
+  const reach = motion.idle + (motion.run - motion.idle) * pose.effort;
+  return side * reach * Math.sin(pose.stride + motion.lag);
+}
+
+/**
+ * A limb as it is in a pose: turned about its pivot, or lifted. `matrix` is its rotation, which
+ * the part's three angles can no longer say.
+ */
+export function movedPart(part, pose) {
+  const swing = swingOf(part, pose);
+  const turn = turnMatrix(part.turn);
+  const { axis } = MOTIONS[part.motion];
+  if (axis === "lift") {
+    return { ...part, at: [part.at[0], part.at[1] + swing, part.at[2]], matrix: turn };
+  }
+  const spin = ABOUT[axis](swing);
+  const [x, y, z] = part.at.map((value, index) => value - part.pivot[index]);
+  const at = [
+    part.pivot[0] + spin[0] * x + spin[3] * y + spin[6] * z,
+    part.pivot[1] + spin[1] * x + spin[4] * y + spin[7] * z,
+    part.pivot[2] + spin[2] * x + spin[5] * y + spin[8] * z,
+  ];
+  return { ...part, at, matrix: multiply(spin, turn) };
+}
+
+/** Whether a part shows in a pose: an eye is open or shut, everything else always shows. */
+export function showsIn(part, pose) {
+  return !part.when || part.when === (pose.blink ? "shut" : "open");
+}
+
+/** The parts of a figure as a pose shows them: eyes open or shut, limbs where the stride puts them. */
+export function partsIn(parts, pose) {
+  return parts
+    .filter((part) => showsIn(part, pose))
+    .map((part) => (part.motion ? movedPart(part, pose) : part));
+}
+
 /**
  * A pose as the shader takes it: the scale along each axis, the rotation that follows it and
  * the lift as the camera sees it. The lights ignore the squash.
@@ -450,7 +522,7 @@ function drawPart(studio, part, grow) {
   gl.vertexAttribPointer(0, 3, gl.FLOAT, false, STRIDE * 4, 0);
   gl.vertexAttribPointer(1, 3, gl.FLOAT, false, STRIDE * 4, 12);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
-  gl.uniformMatrix3fv(uniforms.uTurn, false, turnMatrix(part.turn));
+  gl.uniformMatrix3fv(uniforms.uTurn, false, part.matrix || turnMatrix(part.turn));
   gl.uniform3fv(uniforms.uSize, part.size);
   gl.uniform3fv(uniforms.uAt, part.at);
   gl.uniform3fv(uniforms.uColour, part.colour);
@@ -507,17 +579,12 @@ function drawShadow(studio, parts, pose) {
   gl.uniform1f(uniforms.uShadow, 0);
 }
 
-/** Whether a part shows in a pose: an eye is open or shut, everything else always shows. */
-export function showsIn(part, pose) {
-  return !part.when || part.when === (pose.blink ? "shut" : "open");
-}
-
 /** Draw a figure in a pose into the part of the canvas that the viewport covers. */
 function drawPose(studio, parts, pose, shadow) {
   const { gl, uniforms } = studio;
-  const shown = parts.filter((part) => showsIn(part, pose));
+  const shown = partsIn(parts, pose);
   if (shadow) {
-    drawShadow(studio, shown, pose);
+    drawShadow(studio, parts, pose);
   }
   const { squash, view, lift } = poseUniforms(pose);
   gl.uniform3fv(uniforms.uSquash, squash);

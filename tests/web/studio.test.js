@@ -10,14 +10,18 @@ import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
   MESHES,
+  MOTIONS,
   PROP_CLIPS,
   detailOf,
   footprintOf,
   framesOf,
+  movedPart,
+  partsIn,
   poseOf,
   poseUniforms,
   shadowOf,
   showsIn,
+  swingOf,
   turnMatrix,
   viewMatrix,
 } from "../../src/tft/web/studio.js";
@@ -307,7 +311,7 @@ describe("the frame", () => {
     const points = [];
     for (const part of parts) {
       const mesh = MESHES[part.kind](DETAILS[detailOf(part.size)]);
-      const turn = turnMatrix(part.turn);
+      const turn = part.matrix || turnMatrix(part.turn);
       for (let index = 0; index < mesh.vertices.length / STRIDE; index += 1) {
         const { point, normal } = vertex(mesh, index);
         const turned = apply(turn, point.map((value, axis) => value * part.size[axis]));
@@ -330,12 +334,17 @@ describe("the frame", () => {
     return null;
   }
 
-  it("holds every figure in every pose of every clip", () => {
+  it("holds every figure in every pose of every clip, limbs and all", () => {
     for (const name of Object.keys(MODELS)) {
-      const points = shellOf(partsOf(name));
+      const parts = partsOf(name);
+      // What stands still is the same in every pose; the limbs are worked out pose by pose.
+      const still = shellOf(parts.filter((part) => !part.motion));
+      const limbs = parts.filter((part) => part.motion);
       for (const [clip, frames] of Object.entries(CLIPS)) {
         for (let frame = 0; frame < frames; frame += 1) {
-          assert.equal(strayIn(points, poseOf(clip, frame)), null, `${name}, frame ${frame} of ${clip}`);
+          const pose = poseOf(clip, frame);
+          const moving = shellOf(limbs.map((limb) => movedPart(limb, pose)));
+          assert.equal(strayIn(still.concat(moving), pose), null, `${name}, frame ${frame} of ${clip}`);
         }
       }
     }
@@ -356,6 +365,73 @@ describe("the frame", () => {
     const points = shellOf(partsOf("Candle Reader"));
     assert.equal(strayIn(points, { yaw: 0, lean: 0, squash: 1, lift: 0.8 }), null);
     assert.notEqual(strayIn(points, { yaw: 0, lean: 0, squash: 1, lift: 1.2 }), null);
+  });
+});
+
+describe("the limbs in a pose", () => {
+  const arm = { motion: "arm", at: [0.6, 1, 0], size: [0.1, 0.3, 0.1], turn: [0, 0, 0], pivot: [0.6, 1.3, 0] };
+  const mirror = { ...arm, at: [-0.6, 1, 0], pivot: [-0.6, 1.3, 0] };
+  const running = (stride) => ({ stride, effort: 1, blink: false });
+  const standing = (stride) => ({ stride, effort: 0, blink: false });
+  const quarter = Math.PI / 2;
+
+  it("swing further at a run than at a stand", () => {
+    for (const [name, motion] of Object.entries(MOTIONS)) {
+      assert.ok(motion.run > motion.idle && motion.idle >= 0, name);
+      assert.ok(["x", "y", "z", "lift"].includes(motion.axis), name);
+    }
+    assert.ok(Math.abs(swingOf(arm, running(quarter)) - MOTIONS.arm.run) < CLOSE);
+    assert.ok(Math.abs(swingOf(arm, standing(quarter)) - MOTIONS.arm.idle) < CLOSE);
+    assert.equal(swingOf(arm, running(0)), 0);
+  });
+
+  it("move an arm against its mirror image and against the leg below it", () => {
+    assert.ok(Math.abs(swingOf(arm, running(quarter)) + swingOf(mirror, running(quarter))) < CLOSE);
+    const leg = { ...arm, motion: "leg" };
+    assert.ok(swingOf(arm, running(quarter)) * swingOf(leg, running(quarter)) < 0);
+    // A tail is not sided: it wags the same way wherever it hangs.
+    const tail = { ...arm, motion: "wag" };
+    assert.equal(swingOf(tail, running(1)), swingOf({ ...tail, at: [-0.6, 1, 0] }, running(1)));
+  });
+
+  it("turn a limb about its pivot without stretching it", () => {
+    const length = (part) => Math.hypot(...part.at.map((value, axis) => value - part.pivot[axis]));
+    for (const stride of [0.4, quarter, 2, 4.5]) {
+      const moved = movedPart(arm, running(stride));
+      assert.ok(Math.abs(length(moved) - length(arm)) < CLOSE);
+      assert.ok(Math.abs(moved.at[0] - arm.at[0]) < CLOSE, "an arm swings forward and back, not sideways");
+      assert.equal(moved.matrix.length, 9);
+    }
+    const forward = movedPart(arm, running(quarter));
+    const back = movedPart(mirror, running(quarter));
+    assert.ok(forward.at[2] * back.at[2] < 0, "one hand in front of the body, the other behind");
+    assert.deepEqual(movedPart(arm, running(0)).at.map((value) => Math.round(value * 1e9) / 1e9), arm.at);
+  });
+
+  it("lift what floats, and leave the rest of a figure where it is", () => {
+    const spark = { motion: "bob", at: [0.5, 1, 0.2], size: [0.05, 0.05, 0.05], turn: [0, 0, 0], pivot: [0.5, 1, 0.2] };
+    const up = movedPart(spark, standing(quarter));
+    assert.deepEqual([up.at[0], up.at[2]], [0.5, 0.2]);
+    assert.ok(Math.abs(up.at[1] - 1 - MOTIONS.bob.idle) < CLOSE);
+    const body = { motion: "", when: "", at: [0, 1, 0] };
+    const lid = { motion: "", when: "shut", at: [0, 1.4, 0.4] };
+    const shown = partsIn([body, lid, arm], running(quarter));
+    assert.equal(shown.length, 2);
+    assert.equal(shown[0], body);
+    assert.notDeepEqual(shown[1].at, arm.at);
+    assert.equal(partsIn([body, lid], { ...running(0), blink: true }).length, 2);
+  });
+
+  it("stand nearly still while the figure stands", () => {
+    for (const name of Object.keys(MODELS)) {
+      for (const limb of partsOf(name).filter((part) => part.motion)) {
+        for (let frame = 0; frame < CLIPS.idle; frame += 1) {
+          const moved = movedPart(limb, poseOf("idle", frame));
+          const shift = Math.hypot(...moved.at.map((value, axis) => value - limb.at[axis]));
+          assert.ok(shift < 0.2, `${name}: a ${limb.motion} moves ${shift.toFixed(2)} while standing`);
+        }
+      }
+    }
   });
 });
 
