@@ -1,11 +1,13 @@
 /**
  * The studio: a small WebGL renderer that turns a figure from models.js into moving pictures.
  *
- * A clip is a short motion: the figure breathes and sways, runs away from the camera or towards
- * it, or jumps and spins. Each frame of a clip is one pose of the whole figure; the frames are
- * drawn side by side on one canvas, a strip that the style sheet plays back. Every part is drawn
- * twice: once a little larger, inside out and dark, which leaves an outline, then lit in three
- * bands like a vinyl toy. A browser without WebGL gets `null` and the client keeps its flat art.
+ * A clip is a short motion: the figure breathes, sways and blinks, runs away from the camera or
+ * towards it, or jumps and spins. Each frame of a clip is one pose of the whole figure; the
+ * frames are drawn side by side on one canvas, a strip that the style sheet plays back. A frame
+ * is drawn in three passes: a soft shadow on the ground, then every part a little larger, inside
+ * out and in a dark shade of its own colour, which leaves an outline, then every part lit like a
+ * vinyl toy: two soft bands of light, cool shadows, a rim of light and a darker foot. A browser
+ * without WebGL gets `null` and the client keeps its flat art.
  */
 
 export const FRAME_WIDTH = 192;
@@ -30,8 +32,16 @@ export const FRAME = {
   top: 2 * HALF_HEIGHT - BELOW_GROUND,
 };
 
-/** How many frames each clip has. All but "spin" loop. */
+/** How many frames each clip of a champion has. All but "spin" loop. */
 export const CLIPS = { idle: 8, back: 8, charge: 8, spin: 12 };
+
+/** The clips of the things that stand around the arena: one picture, or one slow turn. */
+export const PROP_CLIPS = { still: 1, turn: 12 };
+
+const FRAMES = { ...CLIPS, ...PROP_CLIPS };
+
+/** The frame of the standing clip in which a figure has its eyes shut. */
+export const BLINK_FRAME = 5;
 
 /**
  * A run: two hops per loop, leaning forward, squashed on the ground and stretched in the air.
@@ -61,18 +71,29 @@ const POSES = {
     squash: 1 + 0.08 * Math.sin(turn / 2),
     lift: 0.55 * Math.sin(turn / 2),
   }),
+  // A thing in the arena, seen a little from the side.
+  still: () => ({ yaw: -28, lean: 0, squash: 1, lift: 0 }),
+  // The same thing turning once about itself.
+  turn: (turn) => ({ yaw: (360 * turn) / FULL_TURN, lean: 0, squash: 1, lift: 0 }),
 };
+
+/** How many frames a clip has; throws a RangeError for a name that is not a clip. */
+export function framesOf(clip) {
+  if (!Object.prototype.hasOwnProperty.call(FRAMES, clip)) {
+    throw new RangeError(`there is no clip called "${clip}"`);
+  }
+  return FRAMES[clip];
+}
 
 /**
  * The pose of the whole figure in one frame of a clip: `yaw` turns it about the vertical axis
  * and `lean` tilts it forward about the ground, both in degrees; `squash` scales its height and
- * keeps its volume; `lift` is its height above the ground in model units.
+ * keeps its volume; `lift` is its height above the ground in model units; `blink` says whether
+ * its eyes are shut.
  */
 export function poseOf(clip, frame) {
-  if (!Object.prototype.hasOwnProperty.call(CLIPS, clip)) {
-    throw new RangeError(`there is no clip called "${clip}"`);
-  }
-  return POSES[clip]((FULL_TURN * frame) / CLIPS[clip]);
+  const pose = POSES[clip]((FULL_TURN * frame) / framesOf(clip));
+  return { ...pose, blink: clip === "idle" && frame === BLINK_FRAME };
 }
 
 const VERTEX_SHADER = `
@@ -87,31 +108,53 @@ uniform vec3 uLift;
 uniform mediump float uGrow;
 uniform vec3 uFrame;
 varying vec3 vNormal;
+varying vec3 vLocal;
+varying float vHeight;
 void main() {
   vec3 normal = normalize(uTurn * (aNormal / uSize));
   vec3 world = uTurn * (aPosition * uSize) + uAt + normal * uGrow;
   vec3 seen = uView * (world * uSquash) + uLift;
   vNormal = uView * normal;
+  vLocal = aPosition;
+  vHeight = world.y;
   gl_Position = vec4(seen.x * uFrame.x, seen.y * uFrame.y + uFrame.z, -seen.z * 0.1, 1.0);
 }`;
 
+/* uShadow > 0 draws the shadow on the ground, uGrow > 0 the outline, otherwise the lit part;
+   uGlow fades the light out, for eyes, lamps and anything else that shines by itself. */
 const FRAGMENT_SHADER = `
 precision mediump float;
 uniform vec3 uColour;
 uniform float uGrow;
+uniform float uGlow;
+uniform float uShadow;
 varying vec3 vNormal;
+varying vec3 vLocal;
+varying float vHeight;
 void main() {
+  if (uShadow > 0.0) {
+    float fade = 1.0 - smoothstep(0.25, 1.0, length(vLocal.xz));
+    gl_FragColor = vec4(0.0, 0.0, 0.0, uShadow * fade);
+    return;
+  }
   if (uGrow > 0.0) {
-    gl_FragColor = vec4(0.04, 0.06, 0.12, 1.0);
+    gl_FragColor = vec4(uColour * vec3(0.24, 0.22, 0.32) + vec3(0.02, 0.025, 0.06), 1.0);
     return;
   }
   vec3 normal = normalize(vNormal);
-  vec3 light = normalize(vec3(-0.5, 0.75, 0.65));
-  float lit = dot(normal, light);
-  float shade = 0.56 + 0.3 * smoothstep(-0.2, -0.05, lit) + 0.24 * smoothstep(0.3, 0.45, lit);
-  float rim = pow(1.0 - clamp(normal.z, 0.0, 1.0), 3.0) * 0.22;
-  float shine = smoothstep(0.955, 0.985, dot(normal, normalize(light + vec3(0.0, 0.0, 1.0)))) * 0.3;
-  gl_FragColor = vec4(uColour * shade + vec3(0.55, 0.7, 1.0) * rim + shine, 1.0);
+  vec3 key = normalize(vec3(-0.5, 0.75, 0.65));
+  float wrap = dot(normal, key) * 0.5 + 0.5;
+  float band = 0.64 * smoothstep(0.34, 0.5, wrap) + 0.36 * smoothstep(0.7, 0.86, wrap);
+  vec3 dark = uColour * vec3(0.5, 0.5, 0.68) + vec3(0.0, 0.005, 0.03);
+  vec3 bright = min(uColour * 1.1 + 0.03, 1.0);
+  vec3 colour = mix(dark, bright, band);
+  colour *= mix(0.72, 1.0, smoothstep(-0.05, 0.8, vHeight));
+  float edge = pow(1.0 - clamp(normal.z, 0.0, 1.0), 2.5);
+  float rim = edge * smoothstep(-0.35, 0.5, normal.y + 0.5 * normal.x);
+  colour += vec3(0.5, 0.68, 1.0) * rim * 0.42;
+  float shine = smoothstep(0.94, 0.985, dot(normal, normalize(key + vec3(0.0, 0.0, 1.0))));
+  colour += shine * 0.14;
+  gl_FragColor = vec4(mix(colour, min(uColour * 1.12, 1.0), uGlow), 1.0);
 }`;
 
 /* Meshes: vertices are x, y, z, then the normal; triangles turn counter-clockwise from outside. */
@@ -321,6 +364,24 @@ export function poseUniforms(pose) {
 
 /* The renderer. */
 
+const UNIFORMS = [
+  "uTurn",
+  "uSize",
+  "uAt",
+  "uView",
+  "uSquash",
+  "uLift",
+  "uGrow",
+  "uGlow",
+  "uShadow",
+  "uFrame",
+  "uColour",
+];
+const NO_TURN = [0, 0, 0];
+const SHADOW_DARKNESS = 0.42;
+const SHADOW_REACH = 0.85;
+const SHADOW_HEIGHT = 0.7;
+
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -369,9 +430,11 @@ export function openStudio() {
   gl.enableVertexAttribArray(0);
   gl.enableVertexAttribArray(1);
   const uniforms = {};
-  for (const name of ["uTurn", "uSize", "uAt", "uView", "uSquash", "uLift", "uGrow", "uFrame", "uColour"]) {
+  for (const name of UNIFORMS) {
     uniforms[name] = gl.getUniformLocation(program, name);
   }
+  // The canvas keeps its colours multiplied by their opacity, and so does the shadow.
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.uniform3f(uniforms.uFrame, 1 / HALF_WIDTH, 1 / HALF_HEIGHT, (BELOW_GROUND - HALF_HEIGHT) / HALF_HEIGHT);
   const meshes = {};
   for (const [kind, build] of Object.entries(MESHES)) {
@@ -392,20 +455,78 @@ function drawPart(studio, part, grow) {
   gl.uniform3fv(uniforms.uAt, part.at);
   gl.uniform3fv(uniforms.uColour, part.colour);
   gl.uniform1f(uniforms.uGrow, grow);
+  gl.uniform1f(uniforms.uGlow, part.glow || 0);
   gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
 }
 
-/** Draw a figure in a pose into the part of the canvas that the viewport covers. */
-function drawPose(studio, parts, pose) {
+/**
+ * How far a figure reaches over the ground to its side and to its front, for its shadow. Parts
+ * high above the ground count for less: a hat throws less shadow at the feet than a belly.
+ */
+export function footprintOf(parts) {
+  let wide = 0.3;
+  let deep = 0.3;
+  for (const part of parts) {
+    const near = 1 / (1 + Math.max(part.at[1] - SHADOW_HEIGHT, 0));
+    wide = Math.max(wide, (Math.abs(part.at[0]) + 0.7 * part.size[0]) * near);
+    deep = Math.max(deep, (Math.abs(part.at[2]) + 0.7 * part.size[2]) * near);
+  }
+  return [Math.min(wide, 1) * SHADOW_REACH, Math.min(deep, 1) * SHADOW_REACH];
+}
+
+/** The shadow under a figure as a part: a flat disc that shrinks and pales as the figure rises. */
+export function shadowOf(parts, lift) {
+  const [wide, deep] = footprintOf(parts);
+  const height = Math.min(Math.max(lift, 0) / 0.6, 1);
+  const reach = 1 - 0.3 * height;
+  return {
+    kind: "ball",
+    at: [0, 0.01, 0],
+    size: [wide * reach, 0.002, deep * reach],
+    colour: NO_TURN,
+    turn: NO_TURN,
+    darkness: SHADOW_DARKNESS * (1 - 0.5 * height),
+  };
+}
+
+/** Draw the shadow of a figure: it lies on the ground whatever the figure does above it. */
+function drawShadow(studio, parts, pose) {
   const { gl, uniforms } = studio;
+  const shadow = shadowOf(parts, pose.lift);
+  const flat = poseUniforms({ yaw: pose.yaw, lean: 0, squash: 1, lift: 0 });
+  gl.uniform3fv(uniforms.uSquash, flat.squash);
+  gl.uniformMatrix3fv(uniforms.uView, false, flat.view);
+  gl.uniform3fv(uniforms.uLift, flat.lift);
+  gl.uniform1f(uniforms.uShadow, shadow.darkness);
+  gl.enable(gl.BLEND);
+  gl.depthMask(false);
+  gl.cullFace(gl.BACK);
+  drawPart(studio, shadow, 0);
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+  gl.uniform1f(uniforms.uShadow, 0);
+}
+
+/** Whether a part shows in a pose: an eye is open or shut, everything else always shows. */
+export function showsIn(part, pose) {
+  return !part.when || part.when === (pose.blink ? "shut" : "open");
+}
+
+/** Draw a figure in a pose into the part of the canvas that the viewport covers. */
+function drawPose(studio, parts, pose, shadow) {
+  const { gl, uniforms } = studio;
+  const shown = parts.filter((part) => showsIn(part, pose));
+  if (shadow) {
+    drawShadow(studio, shown, pose);
+  }
   const { squash, view, lift } = poseUniforms(pose);
   gl.uniform3fv(uniforms.uSquash, squash);
   gl.uniformMatrix3fv(uniforms.uView, false, view);
   gl.uniform3fv(uniforms.uLift, lift);
   gl.cullFace(gl.FRONT);
-  parts.forEach((part) => drawPart(studio, part, OUTLINE));
+  shown.filter((part) => !part.bare).forEach((part) => drawPart(studio, part, OUTLINE));
   gl.cullFace(gl.BACK);
-  parts.forEach((part) => drawPart(studio, part, 0));
+  shown.forEach((part) => drawPart(studio, part, 0));
 }
 
 /**
@@ -413,18 +534,23 @@ function drawPose(studio, parts, pose) {
  *
  * One canvas holds the whole strip, so the picture is read back from the graphics card once
  * for a clip and not once for a frame, which is what takes the time on a software renderer.
+ * `scale` draws every frame that many times larger, for things that are shown large; without
+ * `shadow` the thing throws none, as something that hangs in the air.
  */
-export function renderClip(studio, parts, clip) {
+export function renderClip(studio, parts, clip, { scale = 1, shadow = true } = {}) {
   const { canvas, gl } = studio;
-  const frames = CLIPS[clip];
-  if (canvas.width !== frames * FRAME_WIDTH) {
-    canvas.width = frames * FRAME_WIDTH;
+  const frames = framesOf(clip);
+  const width = FRAME_WIDTH * scale;
+  const height = FRAME_HEIGHT * scale;
+  if (canvas.width !== frames * width || canvas.height !== height) {
+    canvas.width = frames * width;
+    canvas.height = height;
   }
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   for (let frame = 0; frame < frames; frame += 1) {
-    gl.viewport(frame * FRAME_WIDTH, 0, FRAME_WIDTH, FRAME_HEIGHT);
-    drawPose(studio, parts, poseOf(clip, frame));
+    gl.viewport(frame * width, 0, width, height);
+    drawPose(studio, parts, poseOf(clip, frame), shadow);
   }
   return canvas;
 }

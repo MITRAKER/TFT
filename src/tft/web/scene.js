@@ -2,12 +2,13 @@
  * The fight scene: both boards trade the round's slice in front of the player.
  *
  * The scene has four beats, driven by `data-phase` on the floor so that the style sheet owns
- * the motion: "advance" (both boards run at each other), "trading" (every unit strikes while
- * its chart is drawn), "resolved" (every unit shows what the trade did to its size: it jumps,
- * slumps or falls over) and the banner with the result. A click or a key skips to the end.
+ * the motion: "advance" (the bell rings and both boards run at each other), "trading" (every
+ * unit strikes while its chart is drawn and its size bar moves), "resolved" (every unit shows
+ * what the trade did to its size: it jumps, slumps or falls over) and the banner with the
+ * result. A click or a key skips to the end.
  */
 import { clear, el } from "./dom.js";
-import { bannerOf, beatOf, mirrorCell, resultLabel, resultTone } from "./logic.js";
+import { bannerOf, barOf, beatOf, mirrorCell, resultLabel, resultTone } from "./logic.js";
 import { hexCell, hexGrid, sparkSvg, token } from "./pieces.js";
 
 export const ADVANCE_MS = 700;
@@ -21,8 +22,10 @@ function fighter(line, recipes) {
   const node = token(line, recipes);
   node.dataset.result = resultTone(line);
   node.style.setProperty("--beat", String(beatOf(line.cell)));
+  node.style.setProperty("--factor", barOf(line).toFixed(3));
   node.append(
     el("span", { class: "trace" }, [sparkSvg(line, TRACE_WIDTH, TRACE_HEIGHT)]),
+    el("span", { class: "sizebar" }, [el("span", { class: "sizebar-fill" })]),
     el("span", { class: "verdict", text: resultLabel(line) }),
   );
   return node;

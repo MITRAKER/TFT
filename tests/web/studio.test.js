@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { KINDS, MODELS, partsOf } from "../../src/tft/web/models.js";
+import { KINDS, MODELS, PROPS, partsOf, propPartsOf } from "../../src/tft/web/models.js";
 import {
+  BLINK_FRAME,
   CLIPS,
   DETAILS,
   FRAME,
   FRAME_HEIGHT,
   FRAME_WIDTH,
   MESHES,
+  PROP_CLIPS,
   detailOf,
+  footprintOf,
+  framesOf,
   poseOf,
   poseUniforms,
+  shadowOf,
+  showsIn,
   turnMatrix,
   viewMatrix,
 } from "../../src/tft/web/studio.js";
@@ -50,8 +56,9 @@ function seenPoint(pose, point) {
 }
 
 describe("the meshes", () => {
-  it("cover every kind of part", () => {
-    assert.deepEqual(Object.keys(MESHES).sort(), Object.values(KINDS).sort());
+  it("cover every kind of part; an eye is drawn as balls", () => {
+    const solids = Object.values(KINDS).filter((kind) => kind !== "eye");
+    assert.deepEqual(Object.keys(MESHES).sort(), solids.sort());
   });
 
   it("come finer for large parts than for small ones", () => {
@@ -149,6 +156,38 @@ describe("the clips", () => {
     assert.deepEqual(CLIPS, { idle: 8, back: 8, charge: 8, spin: 12 });
     assert.throws(() => poseOf("moonwalk", 0), RangeError);
     assert.throws(() => poseOf("constructor", 0), RangeError);
+    assert.throws(() => framesOf("moonwalk"), RangeError);
+    assert.equal(framesOf("spin"), 12);
+  });
+
+  it("blink once in the standing loop and nowhere else", () => {
+    assert.ok(BLINK_FRAME > 0 && BLINK_FRAME < CLIPS.idle);
+    for (const clip of Object.keys(CLIPS)) {
+      const shut = posesOf(clip).filter((pose) => pose.blink);
+      assert.equal(shut.length, clip === "idle" ? 1 : 0, clip);
+    }
+    assert.equal(poseOf("idle", BLINK_FRAME).blink, true);
+  });
+
+  it("show an eye open or shut, and everything else always", () => {
+    const awake = { blink: false };
+    const blinking = { blink: true };
+    assert.equal(showsIn({ when: "" }, awake), true);
+    assert.equal(showsIn({ when: "" }, blinking), true);
+    assert.equal(showsIn({ when: "open" }, awake), true);
+    assert.equal(showsIn({ when: "open" }, blinking), false);
+    assert.equal(showsIn({ when: "shut" }, awake), false);
+    assert.equal(showsIn({ when: "shut" }, blinking), true);
+  });
+
+  it("show the things of the arena in one picture, or in one turn", () => {
+    assert.deepEqual(PROP_CLIPS, { still: 1, turn: 12 });
+    assert.equal(framesOf("still"), 1);
+    const turn = Array.from({ length: PROP_CLIPS.turn }, (_, frame) => poseOf("turn", frame));
+    assert.ok(Math.abs(poseOf("turn", PROP_CLIPS.turn).yaw - turn[0].yaw - 360) < CLOSE);
+    for (const pose of [poseOf("still", 0), ...turn]) {
+      assert.deepEqual([pose.lean, pose.squash, pose.lift, pose.blink], [0, 1, 0, false]);
+    }
   });
 
   it("loop back to where they started", () => {
@@ -302,9 +341,60 @@ describe("the frame", () => {
     }
   });
 
+  it("holds everything that stands around the arena", () => {
+    for (const name of Object.keys(PROPS)) {
+      const points = shellOf(propPartsOf(name));
+      for (const [clip, frames] of Object.entries(PROP_CLIPS)) {
+        for (let frame = 0; frame < frames; frame += 1) {
+          assert.equal(strayIn(points, poseOf(clip, frame)), null, `${name}, frame ${frame} of ${clip}`);
+        }
+      }
+    }
+  });
+
   it("is left by a figure that is lifted too high", () => {
     const points = shellOf(partsOf("Candle Reader"));
     assert.equal(strayIn(points, { yaw: 0, lean: 0, squash: 1, lift: 0.8 }), null);
     assert.notEqual(strayIn(points, { yaw: 0, lean: 0, squash: 1, lift: 1.2 }), null);
+  });
+});
+
+describe("the shadow", () => {
+  it("is as wide as what a figure has near the ground", () => {
+    const post = [{ at: [0, 1, 0], size: [0.1, 1, 0.1] }];
+    const table = [{ at: [0, 0.4, 0], size: [0.9, 0.05, 0.5] }];
+    const [postWide, postDeep] = footprintOf(post);
+    const [tableWide, tableDeep] = footprintOf(table);
+    assert.ok(tableWide > postWide && tableDeep > postDeep);
+    assert.ok(tableWide > tableDeep, "wider than deep, like the table");
+    assert.ok(postWide > 0.2, "even a post throws a shadow");
+  });
+
+  it("counts a part high up for less than the same part at the feet", () => {
+    const low = footprintOf([{ at: [0.6, 0.3, 0], size: [0.2, 0.2, 0.2] }]);
+    const high = footprintOf([{ at: [0.6, 1.9, 0], size: [0.2, 0.2, 0.2] }]);
+    assert.ok(high[0] < low[0]);
+  });
+
+  it("stays inside the frame for every figure and every prop", () => {
+    const all = [
+      ...Object.keys(MODELS).map((name) => partsOf(name)),
+      ...Object.keys(PROPS).map((name) => propPartsOf(name)),
+    ];
+    for (const parts of all) {
+      const [wide, deep] = footprintOf(parts);
+      assert.ok(wide < FRAME.right && deep < FRAME.right);
+    }
+  });
+
+  it("shrinks and pales as the figure rises, and lies flat on the ground", () => {
+    const parts = partsOf("Bear Baron");
+    const standing = shadowOf(parts, 0);
+    const jumping = shadowOf(parts, 0.55);
+    assert.ok(jumping.size[0] < standing.size[0] && jumping.size[2] < standing.size[2]);
+    assert.ok(jumping.darkness < standing.darkness && jumping.darkness > 0);
+    assert.ok(standing.size[1] < 0.01 && standing.at[1] < 0.05);
+    assert.deepEqual(shadowOf(parts, -1), standing);
+    assert.deepEqual(shadowOf(parts, 5).size, shadowOf(parts, 0.6).size);
   });
 });

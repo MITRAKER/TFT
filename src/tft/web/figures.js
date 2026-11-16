@@ -3,16 +3,29 @@
  *
  * Drawing takes a moment, so it happens in two passes after the page is up. The first draws the
  * standing clip of every figure, which is all the page needs to show its units; the second draws
- * the clips of the fight in the background, one figure at a time. Until a figure is ready, and
- * in a browser that cannot draw in 3D at all, callers get `null` and show the flat portrait.
+ * the things that stand around the arena and then the clips of the fight, in the background,
+ * one figure at a time. Until a figure is ready, and in a browser that cannot draw in 3D at
+ * all, callers get `null` and show the flat portrait.
  */
-import { MODELS, partsOf } from "./models.js";
+import { MODELS, partsOf, propPartsOf } from "./models.js";
 import { CLIPS, openStudio, renderClip } from "./studio.js";
 
 export const IDLE_SECONDS = 1.6;
 const FIRST = "idle";
 const LATER = Object.keys(CLIPS).filter((clip) => clip !== FIRST);
 const PHASES = 16;
+
+/**
+ * The things around the arena: the clip each is drawn in, how large, whether it stands on the
+ * ground, and the custom property of the page that carries its picture to the style sheet.
+ */
+export const PROP_SHEETS = [
+  { name: "Bull Statue", clip: "still", scale: 2, shadow: true, variable: "--prop-bull" },
+  { name: "Bear Statue", clip: "still", scale: 2, shadow: true, variable: "--prop-bear" },
+  { name: "Pylon", clip: "still", scale: 1, shadow: true, variable: "--prop-pylon" },
+  { name: "Coin", clip: "turn", scale: 1, shadow: false, variable: "--prop-coin" },
+  { name: "Bell", clip: "still", scale: 2, shadow: false, variable: "--prop-bell" },
+];
 
 /** For every figure that is drawn, the address of each ready clip as a CSS `url(...)`. */
 const sheets = new Map();
@@ -56,6 +69,20 @@ async function drawClip(studio, name, parts, clip) {
   return true;
 }
 
+/** Draw the things around the arena and hand their pictures to the style sheet. */
+async function drawProps(studio) {
+  for (const prop of PROP_SHEETS) {
+    if (studio.gl.isContextLost()) {
+      return;
+    }
+    const canvas = renderClip(studio, propPartsOf(prop.name), prop.clip, prop);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (blob) {
+      document.documentElement.style.setProperty(prop.variable, `url("${URL.createObjectURL(blob)}")`);
+    }
+  }
+}
+
 /** Draw the clips of the fight for every figure, then close the studio. */
 async function drawLater(studio, figures) {
   let complete = 0;
@@ -93,7 +120,7 @@ export async function prepareFigures() {
       figures.push([name, parts]);
     }
   }
-  later = drawLater(studio, figures);
+  later = drawProps(studio).then(() => drawLater(studio, figures));
   return figures.length;
 }
 

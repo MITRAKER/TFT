@@ -26,7 +26,7 @@
   --cost5: #ffc94d;
   --hue: #5b6f9e;
   --ring: var(--cost1);
-  --tilt: 46deg;
+  --tilt: 50deg;
   --radius: 12px;
   --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -921,38 +921,233 @@ main {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background:
-    radial-gradient(ellipse 62% 50% at 50% 66%, rgba(74, 140, 247, 0.3), transparent 72%),
-    repeating-linear-gradient(90deg, rgba(120, 150, 230, 0.05) 0 1px, transparent 1px 72px),
-    linear-gradient(180deg, #080d1d 0%, #0d1832 48%, #091022 100%);
+    radial-gradient(ellipse 80% 46% at 50% 30%, rgba(72, 112, 236, 0.4), transparent 72%),
+    linear-gradient(180deg, #050917 0%, #0b1638 30%, #0a1330 58%, #060b1b 100%);
 }
 
-.floor::before {
-  content: "";
+/* The arena around the boards, built by arena.js. It is scenery: it takes no clicks. The
+   backdrop lies behind the boards, the foreground in front of them, both flat on the screen. */
+
+.backdrop,
+.foreground {
   position: absolute;
-  inset: 0 0 auto;
-  height: 34%;
-  background: repeating-linear-gradient(
-    90deg,
-    rgba(53, 212, 154, 0.2) 0 7px,
-    transparent 7px 17px,
-    rgba(255, 100, 112, 0.17) 17px 24px,
-    transparent 24px 37px,
-    rgba(53, 212, 154, 0.12) 37px 41px,
-    transparent 41px 55px
-  );
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 0%, transparent 100%);
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
 }
 
+.night {
+  position: absolute;
+  inset: 0 0 58%;
+  background-image:
+    radial-gradient(circle at 7% 18%, #fff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 16% 52%, #cfe0ff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 27% 12%, #fff 0 1.2px, transparent 1.8px),
+    radial-gradient(circle at 38% 40%, #cfe0ff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 49% 9%, #fff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 58% 33%, #fff 0 1.2px, transparent 1.8px),
+    radial-gradient(circle at 69% 15%, #cfe0ff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 78% 46%, #fff 0 1px, transparent 1.6px),
+    radial-gradient(circle at 88% 10%, #fff 0 1.2px, transparent 1.8px),
+    radial-gradient(circle at 95% 36%, #cfe0ff 0 1px, transparent 1.6px);
+  opacity: 0.75;
+}
+
+/* The skyline: candlestick charts as the towers of a city at night, in two rows. */
+
+.skyline {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+}
+
+.skyline.far {
+  top: 2%;
+  height: 24%;
+  opacity: 0.55;
+}
+
+.skyline.near {
+  top: 4%;
+  height: 29%;
+  filter: drop-shadow(0 0 6px rgba(96, 150, 255, 0.4));
+}
+
+.skyline .tower.up {
+  fill: #157f66;
+}
+
+.skyline .tower.down {
+  fill: #a63a4c;
+}
+
+.skyline .cap.up,
+.skyline .wick.up {
+  fill: #62f0c2;
+}
+
+.skyline .cap.down,
+.skyline .wick.down {
+  fill: #ff93a0;
+}
+
+.skyline .storey {
+  fill: rgba(4, 8, 20, 0.42);
+}
+
+.skyline.far .tower.up {
+  fill: #1c5d70;
+}
+
+.skyline.far .tower.down {
+  fill: #6c3657;
+}
+
+.skyline.far .cap,
+.skyline.far .wick {
+  opacity: 0.6;
+}
+
+.haze {
+  position: absolute;
+  inset: 20% 0 auto;
+  height: 26%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(92, 146, 255, 0.36) 46%,
+    rgba(40, 70, 160, 0.16) 72%,
+    transparent 100%
+  );
+}
+
+.beam {
+  position: absolute;
+  top: -12%;
+  left: var(--at);
+  width: 10%;
+  height: 84%;
+  margin-left: -5%;
+  background: linear-gradient(180deg, rgba(160, 196, 255, 0.24), rgba(160, 196, 255, 0) 88%);
+  clip-path: polygon(44% 0, 56% 0, 100% 100%, 0 100%);
+  mix-blend-mode: screen;
+  transform-origin: 50% 0;
+  transform: rotate(var(--lean));
+  animation: sweep var(--time) ease-in-out infinite alternate;
+}
+
+@keyframes sweep {
+  from {
+    transform: rotate(calc(var(--lean) - 5deg));
+  }
+
+  to {
+    transform: rotate(calc(var(--lean) + 5deg));
+  }
+}
+
+/* A thing drawn by the studio: figures.js hands its picture over in a custom property of the
+   page, so in a browser that cannot draw in 3D the thing is simply not there. */
+.prop {
+  display: block;
+  aspect-ratio: 3 / 4;
+  background-repeat: no-repeat;
+  background-position: 50% 100%;
+  background-size: contain;
+  pointer-events: none;
+}
+
+.backdrop .bell {
+  --bell: clamp(52px, 7cqw, 92px);
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: var(--bell);
+  margin-left: calc(var(--bell) / -2);
+  background-image: var(--prop-bell);
+  transform-origin: 50% 36%;
+  transform: translateY(-38%);
+}
+
+.floor[data-phase="advance"] .bell {
+  animation: ring 0.7s ease-in-out both;
+}
+
+@keyframes ring {
+  0%,
+  100% {
+    transform: translateY(-38%) rotate(0deg);
+  }
+
+  18% {
+    transform: translateY(-38%) rotate(17deg);
+  }
+
+  40% {
+    transform: translateY(-38%) rotate(-14deg);
+  }
+
+  62% {
+    transform: translateY(-38%) rotate(9deg);
+  }
+
+  82% {
+    transform: translateY(-38%) rotate(-5deg);
+  }
+}
+
+.foreground {
+  background: radial-gradient(ellipse 78% 82% at 50% 46%, transparent 58%, rgba(3, 6, 16, 0.6) 100%);
+}
+
+.mote {
+  position: absolute;
+  left: var(--at);
+  bottom: -2%;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: rgba(196, 222, 255, 0.92);
+  box-shadow: 0 0 6px 1px rgba(120, 170, 255, 0.7);
+  opacity: 0;
+  animation: drift var(--time) linear var(--wait) infinite;
+}
+
+@keyframes drift {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+
+  12% {
+    opacity: 0.8;
+  }
+
+  80% {
+    opacity: 0.45;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(var(--sway), -62cqw);
+  }
+}
+
 .boards {
-  --hex: min(calc(100cqw / 8.4), 10.4vh, 104px);
+  --hex: min(calc(100cqw / 8.4), 9.5vh, 104px);
   --gap: calc(var(--hex) * 0.05);
+  --statue: calc(var(--hex) * 1.3);
+  --statue-at: calc(100% + var(--hex) * 0.5);
+  --statue-out: 3.9;
+  --statue-drop: 0px;
+  --pylon-near: 4.45;
   position: relative;
   display: grid;
   justify-content: center;
   gap: calc(var(--hex) * 0.34);
-  margin: calc(var(--hex) * 0.62) 0 calc(var(--hex) * -0.16);
+  margin: calc(var(--hex) * 0.6) 0 calc(var(--hex) * 0.2);
   transform: rotateX(var(--tilt));
   transform-style: preserve-3d;
 }
@@ -962,6 +1157,154 @@ main {
 .board,
 .hex-row {
   pointer-events: none;
+}
+
+/* The stage, in the plane of the boards: the ground far below, the platform the boards lie on
+   with its front wall, and the things that stand on them. */
+
+.ground {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--hex) * -2.2);
+  bottom: calc(var(--hex) * -3.4);
+  width: calc(var(--hex) * 16);
+  margin-left: calc(var(--hex) * -8);
+  background:
+    radial-gradient(ellipse 46% 50% at 50% 50%, rgba(84, 146, 255, 0.42) 0, rgba(74, 140, 247, 0.12) 60%, transparent 100%),
+    repeating-linear-gradient(0deg, rgba(128, 160, 240, 0.16) 0 2px, transparent 2px calc(var(--hex) * 1.1)),
+    repeating-linear-gradient(90deg, rgba(128, 160, 240, 0.16) 0 2px, transparent 2px calc(var(--hex) * 1.1)),
+    #070d1f;
+  -webkit-mask-image:
+    linear-gradient(180deg, transparent 0, #000 26%), radial-gradient(ellipse 50% 76% at 50% 56%, #000 58%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, transparent 0, #000 26%), radial-gradient(ellipse 50% 76% at 50% 56%, #000 58%, transparent 100%);
+  mask-composite: intersect;
+  transform: translateZ(calc(var(--hex) * -0.5));
+  pointer-events: none;
+}
+
+.slab {
+  --slab: calc(7.5 * var(--hex) + 7 * var(--gap) + var(--hex) * 1.1);
+  position: absolute;
+  left: 50%;
+  top: calc(var(--hex) * -0.42);
+  bottom: calc(var(--hex) * -0.36);
+  width: var(--slab);
+  margin-left: calc(var(--slab) / -2);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 26%),
+    radial-gradient(ellipse 72% 62% at 50% 50%, #18274f, #0b132d 80%);
+  box-shadow:
+    0 0 0 2px rgba(126, 176, 255, 0.7),
+    0 0 0 7px rgba(74, 140, 247, 0.14),
+    0 0 calc(var(--hex) * 0.7) rgba(74, 140, 247, 0.5);
+  transform: translateZ(-1px);
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.slab-front {
+  position: absolute;
+  inset: 100% 0 auto;
+  height: calc(var(--hex) * 0.44);
+  border-radius: 0 0 8px 8px;
+  background:
+    linear-gradient(180deg, rgba(150, 196, 255, 0.95) 0 7%, transparent 7%),
+    repeating-linear-gradient(90deg, rgba(126, 176, 255, 0.2) 0 2px, transparent 2px calc(var(--hex) * 0.5)),
+    linear-gradient(180deg, #1c2b5a, #090f24);
+  transform-origin: 50% 0;
+  transform: rotateX(-90deg);
+}
+
+.props {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+/* Like a token, a thing stands up from the floor about its foot and faces the camera. */
+.props > .prop {
+  position: absolute;
+  transform-origin: 50% 100%;
+  transform: rotateX(calc(var(--tilt) * -1));
+}
+
+/* The statues stand beside the platform in a fight, on the ground below it. On the planning
+   floor there is no room beside it, so they stand behind its far edge, level with it: Chromium
+   does not paint a thing that dips below the platform where the two overlap from above. */
+.props > .statue {
+  bottom: var(--statue-at);
+  width: var(--statue);
+}
+
+.props > .bull {
+  left: calc(50% - var(--hex) * var(--statue-out));
+  background-image: var(--prop-bull);
+  transform: translateZ(var(--statue-drop)) rotateX(calc(var(--tilt) * -1)) scaleX(-1);
+}
+
+.props > .bear {
+  right: calc(50% - var(--hex) * var(--statue-out));
+  background-image: var(--prop-bear);
+  transform: translateZ(var(--statue-drop)) rotateX(calc(var(--tilt) * -1));
+}
+
+.props > .pylon {
+  width: calc(var(--hex) * 0.9);
+  background-image: var(--prop-pylon);
+}
+
+.pylon.far-left {
+  left: calc(50% - var(--hex) * 4.82);
+}
+
+.pylon.far-right {
+  right: calc(50% - var(--hex) * 4.82);
+}
+
+/* The near corners of the planning floor lie outside its frame, so its near pylons move in. */
+.pylon.near-left {
+  left: calc(50% - var(--hex) * var(--pylon-near));
+}
+
+.pylon.near-right {
+  right: calc(50% - var(--hex) * var(--pylon-near));
+}
+
+.pylon.far-left,
+.pylon.far-right {
+  bottom: calc(100% + var(--hex) * 0.26);
+}
+
+.pylon.near-left,
+.pylon.near-right {
+  bottom: calc(var(--hex) * -0.3);
+}
+
+/* The coin turns in twelve pictures and floats over its pylon. */
+.pylon > .coin {
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 48%;
+  background: var(--prop-coin) 0 0 / 1200% 100% no-repeat;
+  filter: drop-shadow(0 0 5px rgba(255, 201, 77, 0.7));
+  animation:
+    frames 1.5s steps(12, jump-none) infinite,
+    bob 2.6s ease-in-out infinite alternate;
+}
+
+@keyframes bob {
+  from {
+    transform: translateY(6%);
+  }
+
+  to {
+    transform: translateY(-6%);
+  }
 }
 
 .board {
@@ -1036,6 +1379,7 @@ button.hex:focus-visible {
 .tile::after {
   background:
     radial-gradient(ellipse 44% 24% at 50% 58%, rgba(0, 0, 0, var(--shade, 0)), transparent 72%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.1), transparent 46%),
     var(--tile);
 }
 
@@ -1138,6 +1482,7 @@ button.hex:focus-visible {
 
 /* The fight scene, driven by data-phase on the floor: advance, trading, resolved. */
 
+.sizebar,
 .trace,
 .verdict {
   display: none;
@@ -1231,6 +1576,57 @@ button.hex:focus-visible {
 
 .floor[data-phase] .token .stars {
   display: none;
+}
+
+/* The size bar: half full is the size a unit went in with. While it trades the bar moves to
+   what the trade made of it: fuller and green, emptier and red, or empty. */
+
+.floor[data-phase] .token .sizebar {
+  order: -1;
+  position: relative;
+  display: block;
+  width: 74%;
+  height: 6px;
+  margin: 0 auto 3%;
+  border-radius: 3px;
+  background: rgba(6, 9, 18, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+
+.sizebar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.sizebar-fill {
+  display: block;
+  width: 50%;
+  height: 100%;
+  background: var(--info);
+  transition:
+    width 1.3s ease-in-out calc(var(--beat, 0) * 0.3s),
+    background-color 0.4s ease 0.5s;
+}
+
+.floor[data-phase="trading"] .sizebar-fill,
+.floor[data-phase="resolved"] .sizebar-fill {
+  width: calc(var(--factor, 1) * 50%);
+}
+
+.floor[data-phase="trading"] .token[data-result="up"] .sizebar-fill,
+.floor[data-phase="resolved"] .token[data-result="up"] .sizebar-fill {
+  background: var(--good);
+}
+
+.floor[data-phase="trading"] .token[data-result="down"] .sizebar-fill,
+.floor[data-phase="trading"] .token[data-result="out"] .sizebar-fill,
+.floor[data-phase="resolved"] .token[data-result="down"] .sizebar-fill,
+.floor[data-phase="resolved"] .token[data-result="out"] .sizebar-fill {
+  background: var(--bad);
 }
 
 .floor[data-phase="trading"] .token .trace {
@@ -1497,15 +1893,34 @@ button.hex:focus-visible {
   --tilt: 40deg;
   display: grid;
   align-content: center;
-  width: min(100%, 1080px);
+  width: min(100%, 1320px);
   height: 100%;
   perspective: 3200px;
   perspective-origin: 50% 40%;
 }
 
+/* In a fight the far side is the other player's: warm against my cool, a bright line between. */
+
+.scene-floor .board.enemy .hex {
+  --tile: rgba(255, 112, 122, 0.12);
+  --rim: rgba(255, 132, 142, 0.34);
+}
+
+.scene-floor .slab {
+  background:
+    linear-gradient(180deg, transparent 49.4%, rgba(255, 255, 255, 0.34) 49.75% 50.25%, transparent 50.6%),
+    linear-gradient(180deg, rgba(255, 100, 112, 0.2), transparent 44%, transparent 56%, rgba(74, 140, 247, 0.22)),
+    radial-gradient(ellipse 72% 62% at 50% 50%, #18274f, #0b132d 80%);
+}
+
 .scene-floor .boards {
   --hex: min(calc(100cqw / 8.4), 10.2vh, 104px);
-  margin: calc(var(--hex) * -0.2) 0 calc(var(--hex) * -0.6);
+  --statue: calc(var(--hex) * 2);
+  --statue-at: 40%;
+  --statue-out: 6.75;
+  --statue-drop: calc(var(--hex) * -0.5);
+  --pylon-near: 4.82;
+  margin: calc(var(--hex) * 0.1) 0 calc(var(--hex) * -0.6);
 }
 
 .scene-floor .tile {

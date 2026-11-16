@@ -3,6 +3,7 @@
  * All game logic lives on the server. The pure helpers are in logic.js, the pictures in art.js,
  * the shared pieces in pieces.js and the fight scene in scene.js.
  */
+import { dressFloor } from "./arena.js";
 import { $, button, clear, decorate, el, icon, likeness, traitGlyph } from "./dom.js";
 import { laterClips, prepareFigures, upgradeFigures } from "./figures.js";
 import {
@@ -1100,6 +1101,8 @@ function refresh() {
 async function start() {
   wire();
   decorate(document);
+  dressFloor($("floor"));
+  dressFloor($("scene-floor"));
   await guarded(async () => {
     view.catalog = await request("GET", "/api/catalog");
     view.recipes = recipesOf(view.catalog);

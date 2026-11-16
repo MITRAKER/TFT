@@ -164,6 +164,14 @@ export function factorOf(line) {
   return line.size > 0 ? line.score / line.size : 0;
 }
 
+/**
+ * How full a unit's size bar is after its trade, where 1 is the size it went in with: the
+ * factor of the trade, kept between an empty bar and a full one, which is twice the size.
+ */
+export function barOf(line) {
+  return Math.min(Math.max(factorOf(line), 0), 2);
+}
+
 /** How a unit's round went: "out" (wiped out), "up", "down" or "flat". */
 export function resultTone(line) {
   if (!(line.size > 0)) {

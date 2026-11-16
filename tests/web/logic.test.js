@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   arrivalOf,
   bannerOf,
+  barOf,
   beatOf,
   cellEffect,
   factorOf,
@@ -176,6 +177,21 @@ describe("the fight scene", () => {
       scores: "",
       cost: "",
     });
+  });
+});
+
+describe("the size bar", () => {
+  it("is half full for a trade that changed nothing, and follows the factor", () => {
+    assert.equal(barOf({ size: 100, score: 100 }), 1);
+    assert.equal(barOf({ size: 100, score: 150 }), 1.5);
+    assert.equal(barOf({ size: 90, score: 45 }), 0.5);
+  });
+
+  it("is never emptier than empty or fuller than full", () => {
+    assert.equal(barOf({ size: 100, score: 0 }), 0);
+    assert.equal(barOf({ size: 100, score: -20 }), 0);
+    assert.equal(barOf({ size: 100, score: 260 }), 2);
+    assert.equal(barOf({ size: 0, score: 0 }), 0);
   });
 });
 
