@@ -4,8 +4,9 @@
  * the shared pieces in pieces.js and the fight scene in scene.js.
  */
 import { $, button, clear, decorate, el, icon, likeness, traitGlyph } from "./dom.js";
-import { prepareFigures } from "./figures.js";
+import { laterClips, prepareFigures, upgradeFigures } from "./figures.js";
 import {
+  arrivalOf,
   cellEffect,
   fightText,
   headline,
@@ -47,6 +48,7 @@ const view = {
   catalog: null,
   recipes: new Map(),
   selection: null,
+  arrival: null,
   auto: false,
   busy: false,
   timer: null,
@@ -191,6 +193,15 @@ function isSelectedUnit(unit) {
 function isSelected(type, index) {
   const selection = view.selection;
   return Boolean(selection && selection.type === type && selection.index === index);
+}
+
+/** A unit's token; the one the player's last action has just put there drops in. */
+function placedToken(unit, landed) {
+  const piece = token(unit, view.recipes);
+  if (landed) {
+    piece.classList.add("arrived");
+  }
+  return piece;
 }
 
 function miniBoard(units, board) {
@@ -447,7 +458,8 @@ function cellButton(state, row, col) {
     data: { row, col },
     onclick: () => clickTarget({ type: "cell", row, col, unit: unit ? unit.index : null }),
   };
-  return hexCell("button", props, unit ? token(unit, view.recipes) : null);
+  const landed = Boolean(view.arrival) && view.arrival.row === row && view.arrival.col === col;
+  return hexCell("button", props, unit ? placedToken(unit, landed) : null);
 }
 
 function renderBoard(state) {
@@ -483,7 +495,7 @@ function renderBench(state) {
           title: label,
           onclick: () => clickTarget({ type: "bench", unit: unit ? unit.index : null }),
         },
-        unit ? [token(unit, view.recipes)] : [],
+        unit ? [placedToken(unit, Boolean(view.arrival) && view.arrival.slot === slot)] : [],
       ),
     );
   }
@@ -677,12 +689,16 @@ function act(kind, args = []) {
   }
   return guarded(async () => {
     try {
+      const before = view.match.seat;
       const data = await request("POST", matchPath(view.match.id, "/actions"), { kind, args });
       view.match = data.state;
+      view.arrival = arrivalOf({ kind, args }, before, data.state.seat);
       toast(data.message);
     } finally {
       view.selection = null;
       renderGame();
+      // Only this drawing drops the unit in: the next one finds it standing.
+      view.arrival = null;
     }
   });
 }
@@ -1095,6 +1111,9 @@ async function start() {
   if ((await prepareFigures()) > 0) {
     document.body.classList.add("has-figures");
     refresh();
+    if ((await laterClips()) > 0) {
+      upgradeFigures(document);
+    }
   }
 }
 

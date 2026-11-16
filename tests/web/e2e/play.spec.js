@@ -115,24 +115,59 @@ test("the table shows the stage, the players and original art for every unit", a
   await buyAndField(page);
   await expect(page.locator(`#board .hex.occupied .token ${likeness}`)).toHaveCount(1);
   if (solid) {
-    const sheet = await page
-      .locator("#board .hex.occupied .figure")
-      .evaluate((node) => getComputedStyle(node).backgroundImage);
-    expect(sheet).toMatch(/^url\("blob:/);
+    await expect(page.locator("#board .hex.occupied .figure")).toHaveCSS("background-image", /^url\("blob:/);
   }
+  // Only the unit that was just fielded drops in, and only once.
+  await expect(page.locator("#board .token.arrived")).toHaveCount(1);
+  await expect(page.locator("#bench .token.arrived")).toHaveCount(0);
   await page.locator("#board .hex.occupied .token").click();
   await expect(page.locator("#detail")).toContainText("Sell");
+  await expect(page.locator(".token.arrived")).toHaveCount(0);
   await page.locator("#rivals .rival:not(.me)").first().click();
   await expect(page.locator("#dialog-body .board.mini")).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
   expect(problems).toEqual([]);
 });
 
+/**
+ * Note in the page every phase the fight scene goes through and, when it opens, the picture
+ * that the first figure of my board shows next to its clips. Read it back as `window.scene`.
+ */
+function watchScene(page) {
+  return page.evaluate(() => {
+    const floor = document.getElementById("scene-floor");
+    window.scene = { phases: [], figure: null };
+    new MutationObserver(() => {
+      const phase = floor.dataset.phase;
+      if (!phase) {
+        return;
+      }
+      window.scene.phases.push(phase);
+      const figure = document.querySelector("#scene-mine .figure");
+      if (phase === "advance" && figure) {
+        const style = getComputedStyle(figure);
+        const address = (value) => (/blob:[^")]+/.exec(value) || [""])[0];
+        window.scene.figure = {
+          shown: address(style.backgroundImage),
+          idle: address(style.getPropertyValue("--idle")),
+          back: address(style.getPropertyValue("--back")),
+        };
+      }
+    }).observe(floor, { attributes: true, attributeFilter: ["data-phase"] });
+  });
+}
+
 test("a fight plays as a scene with both boards before the result", async ({ page }) => {
   const problems = watchForProblems(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await startMatch(page, { seed: 9, bots: 7 });
   await buyAndField(page);
+  const solid = await canDraw3d(page);
+  if (solid) {
+    // The clips of the fight are drawn after the page is up; the board is drawn again with them.
+    await expect(page.locator("#board .hex.occupied .figure.has-clips")).toHaveCount(1, { timeout: 60_000 });
+  }
+  await watchScene(page);
   await page.click("#btn-fight");
   await expect(page.locator("#theatre")).toBeVisible();
   await expect(page.locator("#scene-caption")).toContainText("Round 1-1: You against The Market");
@@ -145,6 +180,14 @@ test("a fight plays as a scene with both boards before the result", async ({ pag
   await expect(page.locator("#banner .banner-word")).toHaveText(/Victory|Defeat|Draw/);
   await expect(page.locator("#dialog-actions button.primary")).toBeVisible();
   await expect(page.locator("#theatre")).toBeHidden();
+  const scene = await page.evaluate(() => window.scene);
+  expect(scene.phases).toEqual(["advance", "trading", "resolved"]);
+  if (solid) {
+    // My units run at the enemy: the figure shows its back, not the clip it stands in.
+    expect(scene.figure.back).toMatch(/^blob:/);
+    expect(scene.figure.shown).toBe(scene.figure.back);
+    expect(scene.figure.shown).not.toBe(scene.figure.idle);
+  }
   await page.locator("#dialog-actions button.primary").click();
 
   await buyAndField(page);

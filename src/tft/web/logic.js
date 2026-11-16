@@ -194,6 +194,32 @@ export function mirrorCell(board, row, col) {
   return [board.rows - 1 - row, board.cols - 1 - col];
 }
 
+/**
+ * A unit's place in the rhythm of a fight, from 0 up to 1, by its cell: neighbours get
+ * different beats, so a board does not strike as one body.
+ */
+export function beatOf(cell) {
+  const [row, col] = cell || [0, 0];
+  return ((row * 3 + col * 5) % 8) / 8;
+}
+
+/**
+ * Where the player's action has just put a unit, for the drop-in: `{ row, col }` after fielding
+ * or moving one, `{ slot }` when a purchase or benching added one to the bench, otherwise `null`.
+ * `before` and `after` are the player's seat around the action.
+ */
+export function arrivalOf(action, before, after) {
+  if (action.kind === "field" || action.kind === "move") {
+    const [, row, col] = action.args;
+    return unitAt(after.board, row, col) ? { row, col } : null;
+  }
+  const added = after.bench.length === before.bench.length + 1;
+  if ((action.kind === "buy" || action.kind === "bench") && added) {
+    return { slot: after.bench.length - 1 };
+  }
+  return null;
+}
+
 /** Every seat for the scoreboard: the living by health, then the eliminated; `me` marks the player. */
 export function standings(seat, others) {
   const seats = others.map((other) => ({ ...other, me: false }));

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  arrivalOf,
   bannerOf,
+  beatOf,
   cellEffect,
   factorOf,
   fightText,
@@ -174,6 +176,51 @@ describe("the fight scene", () => {
       scores: "",
       cost: "",
     });
+  });
+});
+
+describe("the motion", () => {
+  it("gives neighbouring cells different beats", () => {
+    for (let row = 0; row < BOARD.rows; row += 1) {
+      for (let col = 0; col < BOARD.cols; col += 1) {
+        const beat = beatOf([row, col]);
+        assert.ok(beat >= 0 && beat < 1, `beat ${beat}`);
+        assert.notEqual(beat, beatOf([row, col + 1]));
+        assert.notEqual(beat, beatOf([row + 1, col]));
+      }
+    }
+    assert.equal(beatOf([0, 0]), 0);
+    assert.equal(beatOf(null), 0);
+  });
+
+  const seat = (board, bench) => ({
+    board: board.map(([row, col], index) => ({ index, cell: [row, col] })),
+    bench: Array.from({ length: bench }, (_, index) => ({ index: board.length + index, cell: null })),
+  });
+
+  it("finds the cell a unit has just been fielded on or moved to", () => {
+    const before = seat([[3, 3]], 2);
+    const fielded = seat([[3, 3], [0, 2]], 1);
+    assert.deepEqual(arrivalOf({ kind: "field", args: [1, 0, 2] }, before, fielded), { row: 0, col: 2 });
+    const moved = seat([[1, 5]], 2);
+    assert.deepEqual(arrivalOf({ kind: "move", args: [0, 1, 5] }, before, moved), { row: 1, col: 5 });
+    assert.equal(arrivalOf({ kind: "move", args: [0, 2, 2] }, before, before), null);
+  });
+
+  it("finds the bench slot a bought or benched unit has just taken", () => {
+    const before = seat([[3, 3]], 2);
+    assert.deepEqual(arrivalOf({ kind: "buy", args: [4] }, before, seat([[3, 3]], 3)), { slot: 2 });
+    assert.deepEqual(arrivalOf({ kind: "bench", args: [0] }, before, seat([], 3)), { slot: 2 });
+  });
+
+  it("drops nothing in when no unit arrived", () => {
+    const before = seat([[3, 3]], 2);
+    // Three copies merged: the purchase left the bench as long as it was, or shorter.
+    assert.equal(arrivalOf({ kind: "buy", args: [0] }, before, seat([[3, 3]], 2)), null);
+    assert.equal(arrivalOf({ kind: "buy", args: [0] }, before, seat([[3, 3]], 1)), null);
+    assert.equal(arrivalOf({ kind: "sell", args: [1] }, before, seat([[3, 3]], 1)), null);
+    assert.equal(arrivalOf({ kind: "reroll", args: [] }, before, before), null);
+    assert.equal(arrivalOf({ kind: "xp", args: [] }, before, seat([[3, 3]], 3)), null);
   });
 });
 
