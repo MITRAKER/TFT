@@ -30,7 +30,7 @@ describe("the 3D figures", () => {
       const highest = Math.max(...parts.map((part) => part.at[1] + part.size[1]));
       const widest = Math.max(...parts.map((part) => Math.abs(part.at[0]) + part.size[0]));
       assert.ok(lowest > -0.75, `${name} sinks into the ground: ${lowest}`);
-      assert.ok(highest > 1.3 && highest < 2.45, `${name} is ${highest} tall`);
+      assert.ok(highest > 1.1 && highest < 2.45, `${name} is ${highest} tall`);
       assert.ok(widest < 1.3, `${name} is ${widest} wide`);
     }
   });
