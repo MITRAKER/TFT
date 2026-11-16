@@ -10,8 +10,8 @@
 
 ## Cutting a release
 
-1. Make sure `main` is green: CI, Standards, CodeQL and Security.
-2. On a branch, set `version` in `pyproject.toml`, move the **Unreleased** entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and open a pull request titled `release: vX.Y.Z`.
+1. Make sure `main` is green: CI, Standards, CodeQL and Security. CI includes the `web` job, the only place where the browser client is linted and tested (ESLint, the unit tests, the browser tests).
+2. On a branch, set `version` in `pyproject.toml`, move the **Unreleased** entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and open a pull request titled `release: vX.Y.Z`. If a rule, a strategy or the market pack changed, paste the new tables into `docs/BALANCE.md` (`python tools/balance_report.py --matches 60 --format markdown`).
 3. Merge it. Then tag the merge commit and push the tag:
 
    ```bash
@@ -23,8 +23,8 @@
 
 4. Watch the **Release** workflow. It:
    - checks that the tag matches `pyproject.toml` (`tools/release_version.py`);
-   - runs the full gate again: formatting, lint, `mypy`, Power of Ten, tests;
-   - builds the sdist and the wheel, checks their metadata and writes `SHA256SUMS.txt`;
+   - runs the Python gate again: formatting, lint, `mypy`, Power of Ten, tests. It does not run the client's checks; step 1 covers them;
+   - builds the sdist and the wheel, checks their metadata and writes `SHA256SUMS.txt`. The browser client ships inside the package (`web/*` in `pyproject.toml`);
    - signs a SLSA build provenance attestation for the artifacts;
    - creates the GitHub Release with notes generated from the merged pull requests (categories in `.github/release.yml`);
    - for a stable release, moves the `stable` tag to the release commit and marks the release as *Latest*.
@@ -46,5 +46,5 @@ gh attestation verify tft-X.Y.Z-py3-none-any.whl --repo MITRAKER/TFT
 
 ## If something goes wrong
 
-- A failed **verify** job means the tag and `pyproject.toml` disagree, or the gate failed. Fix `main`, bump the version, and tag again with the next number. Do not move or delete the tag.
+- A failed **verify** job means the tag and `pyproject.toml` disagree, or the Python gate failed. Fix `main`, bump the version, and tag again with the next number. Do not move or delete the tag.
 - A failed **publish** job after the release exists: re-run the job. `gh release create` fails on an existing release, so delete the half-made release (not the tag) in the GitHub UI first.

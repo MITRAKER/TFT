@@ -129,6 +129,39 @@ test("the table shows the stage, the players and original art for every unit", a
   expect(problems).toEqual([]);
 });
 
+test("the board stands in an arena that is only scenery", async ({ page }) => {
+  const problems = watchForProblems(page);
+  await startMatch(page, { seed: 5, bots: 7 });
+  // The skyline in two rows, the platform with its wall, and the things that stand around.
+  await expect(page.locator("#floor .backdrop .skyline")).toHaveCount(2);
+  await expect(page.locator("#floor .skyline.near .tower")).toHaveCount(26);
+  await expect(page.locator("#floor .slab .slab-front")).toHaveCount(1);
+  await expect(page.locator("#floor .props .statue")).toHaveCount(2);
+  await expect(page.locator("#floor .props .pylon .coin")).toHaveCount(4);
+  await expect(page.locator("#hero .backdrop .skyline")).toHaveCount(2);
+  if (await canDraw3d(page)) {
+    await expect(page.locator("body")).toHaveClass(/has-figures/, { timeout: 60_000 });
+    for (const prop of ["#floor .statue.bull", "#floor .statue.bear", "#floor .pylon.far-left"]) {
+      await expect(page.locator(prop)).toHaveCSS("background-image", /^url\("blob:/, { timeout: 60_000 });
+    }
+  }
+  // None of it is announced, can be focused or takes a click away from the board.
+  const scenery = await page.evaluate(() => {
+    const layers = [...document.querySelectorAll("#floor .backdrop, #floor .foreground, #floor .ground")];
+    const stage = [...document.querySelectorAll("#floor .slab, #floor .props")];
+    const all = layers.concat(stage);
+    return {
+      hidden: all.every((node) => node.getAttribute("aria-hidden") === "true"),
+      inert: all.every((node) => getComputedStyle(node).pointerEvents === "none"),
+      focusable: all.reduce((count, node) => count + node.querySelectorAll("a, button, input, [tabindex]").length, 0),
+    };
+  });
+  expect(scenery).toEqual({ hidden: true, inert: true, focusable: 0 });
+  await buyAndField(page);
+  await expect(page.locator("#board .hex.occupied .token")).toHaveCount(1);
+  expect(problems).toEqual([]);
+});
+
 /**
  * Note in the page every phase the fight scene goes through and, when it opens, the picture
  * that the first figure of my board shows next to its clips. Read it back as `window.scene`.
@@ -174,6 +207,12 @@ test("a fight plays as a scene with both boards before the result", async ({ pag
   await expect(page.locator("#scene-mine .hex.occupied .token")).toHaveCount(1);
   await expect(page.locator("#scene-enemy .hex.occupied .token")).toHaveCount(2);
   await expect(page.locator("#scene-mine .token .trace .spark-line")).toBeVisible();
+  // Every fighter carries a size bar, half full until its trade is made.
+  await expect(page.locator("#theatre .token .sizebar .sizebar-fill")).toHaveCount(3);
+  const factors = await page
+    .locator("#theatre .token")
+    .evaluateAll((tokens) => tokens.map((token) => Number(token.style.getPropertyValue("--factor"))));
+  expect(factors.every((factor) => factor >= 0 && factor <= 2)).toBe(true);
   await expect(page.locator("#scene-floor")).toHaveAttribute("data-phase", "resolved");
   await expect(page.locator("#scene-mine .token .verdict")).toHaveText(/%|wiped out/);
   await expect(page.locator("#banner")).toBeVisible();
@@ -223,4 +262,14 @@ test("on a narrow screen the shop sits right under the bench", async ({ page }) 
   expect(traits.y).toBeGreaterThan(shop.y + shop.height);
   const pageWidth = await page.evaluate("document.documentElement.scrollWidth");
   expect(pageWidth).toBeLessThanOrEqual(420);
+  // A unit on the front row stands inside the floor: its head is not cut off at the top.
+  await page.locator("#shop .card:not(.empty):not(.poor)").first().click();
+  await expect(page.locator("#toast")).toContainText("bought");
+  await page.locator("#bench .slot.occupied").first().click();
+  await page.locator('#board .hex[data-row="0"]:not(.occupied) .tile').first().click();
+  await expect(page.locator("#toast")).toContainText("fielded");
+  const floor = await page.locator("#floor").boundingBox();
+  const likeness = await page.locator("#board .hex.occupied .token :is(.stand, .disc)").boundingBox();
+  expect(likeness.y).toBeGreaterThanOrEqual(floor.y);
+  expect(likeness.y + likeness.height).toBeLessThanOrEqual(floor.y + floor.height);
 });

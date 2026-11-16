@@ -86,7 +86,7 @@ function placed(name, properties) {
   return node;
 }
 
-function backdrop() {
+function backdrop(bell) {
   const next = sequence(71);
   const beams = Array.from({ length: BEAMS }, (_, index) =>
     placed("beam", {
@@ -100,7 +100,7 @@ function backdrop() {
     ...ROWS.map(skyline),
     el("span", { class: "haze" }),
     ...beams,
-    el("span", { class: "prop bell" }),
+    ...(bell ? [el("span", { class: "prop bell" })] : []),
   ]);
 }
 
@@ -142,7 +142,14 @@ export function dressFloor(floor) {
   if (!boards || floor.querySelector(".backdrop")) {
     return;
   }
-  floor.prepend(backdrop());
+  floor.prepend(backdrop(true));
   boards.prepend(...stage());
   floor.append(foreground());
+}
+
+/** Put the night sky and the skyline behind something that is not a floor: the lobby's hero. */
+export function dressSky(node) {
+  if (!node.querySelector(".backdrop")) {
+    node.prepend(backdrop(false));
+  }
 }

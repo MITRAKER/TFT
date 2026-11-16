@@ -414,33 +414,73 @@ main {
 
 /* Lobby -------------------------------------------------------------------- */
 
+/* The hero: the roster on parade in front of the arena's night skyline (arena.js). */
+
 .hero {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 62%, rgba(72, 112, 236, 0.42), transparent 72%),
+    linear-gradient(180deg, #050917 0%, #0b1638 46%, #0a1330 100%);
+}
+
+.hero .skyline.far {
+  top: 30%;
+  height: 34%;
+}
+
+.hero .skyline.near {
+  top: 30%;
+  height: 40%;
+}
+
+.hero .haze {
+  inset: 46% 0 auto;
+  height: 30%;
+}
+
+.hero-copy {
+  position: relative;
   display: grid;
   gap: 8px;
+  padding: 22px 22px 6px;
+  background: linear-gradient(180deg, rgba(5, 9, 23, 0.82), rgba(5, 9, 23, 0));
 }
 
 .hero h2 {
-  font-size: 1.7rem;
+  font-size: clamp(1.7rem, 3.4vw, 2.5rem);
+  line-height: 1.1;
   letter-spacing: 0;
   text-transform: none;
   color: var(--text);
+  text-wrap: balance;
 }
 
 .hero p {
-  max-width: 74ch;
-  color: var(--muted);
+  max-width: 66ch;
+  color: #c3cdea;
 }
 
+/* The roster stands on the edge of a lit floor. */
 .showcase {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 4px;
-  padding-top: 6px;
+  justify-content: center;
+  gap: 2px 4px;
+  padding: 30px 14px 16px;
+  background:
+    linear-gradient(180deg, rgba(150, 196, 255, 0.9), rgba(150, 196, 255, 0) 2px) 0 68% / 100% 2px no-repeat,
+    linear-gradient(180deg, transparent 0, rgba(9, 15, 36, 0.86) 68%, #080d20 100%);
 }
 
 .show-unit {
-  --u: 62px;
-  width: 62px;
+  --u: 78px;
+  width: 78px;
 }
 
 .show-unit .plate {
@@ -2801,13 +2841,28 @@ button.fight {
     order: 4;
   }
 
+  /* Room above the front row for the units that stand on it, and below for the platform's wall. */
   .boards {
-    --hex: min(calc(100cqw / 7.9), 96px);
-    margin: calc(var(--hex) * -0.1) 0 calc(var(--hex) * -0.3);
+    --hex: min(calc(100cqw / 8.6), 96px);
+    margin: calc(var(--hex) * 1.05) 0 calc(var(--hex) * 0.1);
   }
 
   .floor:not([data-phase]) .board.enemy {
     display: none;
+  }
+
+  /* A narrow planning floor has no room behind the platform for the statues. */
+  .floor:not(.scene-floor) .statue {
+    display: none;
+  }
+
+  .hero-copy {
+    padding: 16px 14px 4px;
+  }
+
+  .show-unit {
+    --u: 58px;
+    width: 58px;
   }
 
   .round {
