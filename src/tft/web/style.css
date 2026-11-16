@@ -1775,7 +1775,7 @@ button.hex:focus-visible {
 
 .floor[data-phase="resolved"] .token .verdict {
   position: absolute;
-  top: 17%;
+  top: 2%;
   left: 0;
   right: 0;
   z-index: 2;
@@ -1792,9 +1792,8 @@ button.hex:focus-visible {
   animation: pop 0.35s ease-out both;
 }
 
-/* A winner jumps: its label stands higher, out of the way. */
+/* The label takes the place of the chart, over the size bar and clear of a winner's jump. */
 .floor[data-phase="resolved"] .token[data-result="up"] .verdict {
-  top: 4%;
   color: var(--good);
 }
 
@@ -1951,6 +1950,33 @@ button.hex:focus-visible {
     linear-gradient(180deg, transparent 49.4%, rgba(255, 255, 255, 0.34) 49.75% 50.25%, transparent 50.6%),
     linear-gradient(180deg, rgba(255, 100, 112, 0.2), transparent 44%, transparent 56%, rgba(74, 140, 247, 0.22)),
     radial-gradient(ellipse 72% 62% at 50% 50%, #18274f, #0b132d 80%);
+}
+
+/* Where the two sides meet: a band of light on the platform that flares while they trade. */
+.scene-floor .slab::after {
+  content: "";
+  position: absolute;
+  inset: 44% 0;
+  background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(255, 236, 190, 0.5), transparent 72%);
+  opacity: 0;
+}
+
+.scene-floor[data-phase="trading"] .slab::after {
+  animation: clash 0.8s ease-in-out infinite;
+}
+
+@keyframes clash {
+  0%,
+  20%,
+  40%,
+  100% {
+    opacity: 0.12;
+  }
+
+  9%,
+  29% {
+    opacity: 0.9;
+  }
 }
 
 .scene-floor .boards {

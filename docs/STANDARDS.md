@@ -89,7 +89,7 @@ enforced by the tools below. They are development tools only, pinned in
 | No dynamic code | no `eval`, no implied `eval`, no `new Function` | ESLint (`no-eval`, `no-implied-eval`, `no-new-func`), CodeQL |
 | Markup | elements are built with DOM calls and text is set as text; no `innerHTML` | review; the server's content security policy only allows scripts and styles from the server itself |
 | Unit tests | the code without a DOM (`logic.js`, `art.js`, `models.js`, the skyline of `arena.js`, the timing of `figures.js`, and the meshes, rotations, poses and shadows of `studio.js`) is tested on Node's test runner | `npm test` (`tests/web/*.test.js`) |
-| Browser tests | the game is played in headless Chromium against `python -m tft serve`: a whole match and its replay, the round result, the art and the figures, the fight scene, spectating and the narrow layout | `npx playwright test` (`tests/web/e2e`) |
+| Browser tests | the game is played in headless Chromium against `python -m tft serve`: a whole match and its replay, the round result, the art and the figures, the arena, the fight scene, spectating and the narrow layout | `npx playwright test` (`tests/web/e2e`) |
 
 Two limits: the client's tests have no coverage threshold, and `pre-commit`
 does not run the client's checks. They run in the `web` job of the CI
