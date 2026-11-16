@@ -1523,6 +1523,7 @@ button.hex:focus-visible {
 /* The fight scene, driven by data-phase on the floor: advance, trading, resolved. */
 
 .sizebar,
+.ticks,
 .trace,
 .verdict {
   display: none;
@@ -1768,6 +1769,92 @@ button.hex:focus-visible {
   9%,
   29% {
     filter: brightness(1.5);
+  }
+}
+
+/* While it trades, a unit that is gaining sends marks up and one that is losing drops them:
+   the ticks of the tape. They stay inside the token's box, like everything a token shows. */
+
+.floor[data-phase="trading"] .token .ticks {
+  position: absolute;
+  inset: 34% 6% auto;
+  z-index: 2;
+  display: block;
+  height: 38%;
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border: 0.62em solid transparent;
+  border-top-width: 0;
+  border-bottom-width: 0.9em;
+  border-bottom-color: var(--good);
+  opacity: 0;
+  animation: tick-up 0.9s ease-out infinite;
+}
+
+.tick.first {
+  left: 8%;
+  animation-delay: calc(var(--beat, 0) * 0.5s);
+}
+
+.tick.second {
+  left: 44%;
+  animation-delay: calc(var(--beat, 0) * 0.5s + 0.3s);
+}
+
+.tick.third {
+  left: 78%;
+  animation-delay: calc(var(--beat, 0) * 0.5s + 0.6s);
+}
+
+.token[data-result="down"] .tick,
+.token[data-result="out"] .tick {
+  top: 0;
+  bottom: auto;
+  border-top-width: 0.9em;
+  border-bottom-width: 0;
+  border-top-color: var(--bad);
+  animation-name: tick-down;
+}
+
+.token[data-result="flat"] .tick {
+  display: none;
+}
+
+@keyframes tick-up {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+
+  25% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-260%);
+  }
+}
+
+@keyframes tick-down {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+
+  25% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(260%);
   }
 }
 

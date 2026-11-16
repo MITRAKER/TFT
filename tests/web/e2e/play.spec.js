@@ -263,6 +263,10 @@ test("on a narrow screen the shop sits right under the bench", async ({ page }) 
   const pageWidth = await page.evaluate("document.documentElement.scrollWidth");
   expect(pageWidth).toBeLessThanOrEqual(420);
   // A unit on the front row stands inside the floor: its head is not cut off at the top.
+  // The page is drawn again once when the figures are ready, so measure after that.
+  if (await canDraw3d(page)) {
+    await expect(page.locator("body")).toHaveClass(/has-figures/, { timeout: 60_000 });
+  }
   await page.locator("#shop .card:not(.empty):not(.poor)").first().click();
   await expect(page.locator("#toast")).toContainText("bought");
   await page.locator("#bench .slot.occupied").first().click();

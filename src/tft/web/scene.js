@@ -17,6 +17,7 @@ export const RESULT_MS = 1100;
 export const BANNER_MS = 1400;
 const TRACE_WIDTH = 64;
 const TRACE_HEIGHT = 26;
+const TICKS = ["first", "second", "third"];
 
 function fighter(line, recipes) {
   const node = token(line, recipes);
@@ -26,6 +27,7 @@ function fighter(line, recipes) {
   node.append(
     el("span", { class: "trace" }, [sparkSvg(line, TRACE_WIDTH, TRACE_HEIGHT)]),
     el("span", { class: "sizebar" }, [el("span", { class: "sizebar-fill" })]),
+    el("span", { class: "ticks", "aria-hidden": "true" }, TICKS.map((tick) => el("span", { class: `tick ${tick}` }))),
     el("span", { class: "verdict", text: resultLabel(line) }),
   );
   return node;
