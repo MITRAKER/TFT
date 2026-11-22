@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import http.client
+import io
 import json
+import logging
 import re
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -14,6 +18,7 @@ from typing import Any
 import pytest
 
 from tft import __version__
+from tft.errors import Refusal
 from tft.items import Component
 from tft.name import GAME_NAME
 from tft.roster import CHAMPIONS, TRAITS
@@ -26,9 +31,12 @@ from tft.server import (
     ApiError,
     GameServer,
     Lobby,
+    RequestHandler,
     Response,
+    check_source,
     create_server,
     flag,
+    host_name,
     json_response,
     parse_action,
     parse_body,
@@ -63,12 +71,15 @@ def api() -> Api:
 
 
 def test_parse_body() -> None:
-    assert parse_body(b"", "") == {}
+    assert parse_body(b"", JSON) == {}
     assert parse_body(b'{"a": 1}', "application/json; charset=utf-8") == {"a": 1}
-    with pytest.raises(ApiError, match="application/json") as wrong_type:
-        parse_body(b"{}", "text/plain")
-    assert wrong_type.value.status == 415
-    for bad in (b"[1]", b"{", b"\xff\xfe"):
+    # The JSON type is wanted even when there is nothing to parse.
+    for body, content_type in ((b"{}", "text/plain"), (b"", "text/plain"), (b"", "")):
+        with pytest.raises(ApiError, match="application/json") as wrong_type:
+            parse_body(body, content_type)
+        assert wrong_type.value.status == 415
+    nested = b"[" * 60_000
+    for bad in (b"[1]", b"{", b"\xff\xfe", nested):
         with pytest.raises(ApiError, match="must be a JSON object") as error:
             parse_body(bad, JSON)
         assert error.value.status == 400
@@ -155,6 +166,48 @@ def test_create_rejects_bad_options(api: Api, payload: dict[str, Any], message: 
     assert status == 400
     assert data["ok"] is False
     assert message in data["error"]
+
+
+def test_a_post_is_only_taken_as_json(api: Api) -> None:
+    for content_type in ("", "text/plain", "application/x-www-form-urlencoded"):
+        response = api.handle("POST", "/api/matches", b"", content_type)
+        assert int(response.status) == 415
+        assert json.loads(response.body)["error"] == "send the body as application/json"
+    assert call(api, "GET", "/api/matches")[1]["matches"] == []
+    state = new_match(api)
+    response = api.handle("POST", f"/api/matches/{state['id']}/ready", b"", "text/plain")
+    assert int(response.status) == 415
+    assert call(api, "GET", f"/api/matches/{state['id']}")[1]["state"]["round"]["label"] == "1-1"
+
+
+def test_the_number_of_bots_follows_the_rules() -> None:
+    assert call(Api(), "GET", "/api/catalog")[1]["bots"] == {"min": 1, "max": 7}
+    small = Api(Lobby(Rules(stages=1, lobby_size=4)))
+    assert call(small, "GET", "/api/catalog")[1]["bots"] == {"min": 1, "max": 3}
+    status, data = call(small, "POST", "/api/matches", {})
+    assert (status, len(data["state"]["others"])) == (201, 3)
+    status, data = call(small, "POST", "/api/matches", {"bots": 7})
+    assert (status, data["error"]) == (400, "bots must be a whole number, 1 to 3")
+    crowded = Lobby(Rules(stages=1, min_players=4))
+    assert crowded.bots_range() == (3, 7)
+    with pytest.raises(Refusal, match="bots must be 3 to 7"):
+        crowded.create(1, 2, market=True, spectate=False)
+    assert len(crowded.create(1, 3, market=True, spectate=True).game.players) == 4
+
+
+def test_buying_a_sold_out_card_is_refused_with_the_reason(api: Api) -> None:
+    state = new_match(api)
+    match = api.lobby.get(state["id"])
+    slot, card = next(
+        (slot, card) for slot, card in enumerate(state["seat"]["shop"]) if card is not None
+    )
+    pool = match.game.pool
+    pool.take(card["name"], pool.remaining(card["name"]))
+    path = f"/api/matches/{state['id']}/actions"
+    status, data = call(api, "POST", path, {"kind": "buy", "args": [slot]})
+    assert (status, data["error"]) == (400, f"no copy of {card['name']} is left in the pool")
+    after = call(api, "GET", f"/api/matches/{state['id']}")[1]["state"]["seat"]
+    assert (after["gold"], after["bench"]) == (state["seat"]["gold"], state["seat"]["bench"])
 
 
 def test_actions_refusals_and_bad_requests(api: Api) -> None:
@@ -396,6 +449,10 @@ def test_the_lobby_evicts_finished_matches_first_then_the_least_recently_used() 
 def test_the_lobby_validates_its_arguments() -> None:
     with pytest.raises(ValueError, match="max_matches"):
         Lobby(max_matches=0)
+    with pytest.raises(ValueError, match="a slice of 61 bars does not fit the pack's 60 dates"):
+        Lobby(Rules(stages=1, slice_bars=61))
+    with pytest.raises(ValueError, match="need 10 players, the server seats at most 8"):
+        Lobby(Rules(stages=1, lobby_size=12, min_players=10))
     lobby = Lobby(SHORT)
     for bots in (0, 8):
         with pytest.raises(ValueError, match="bots must be 1 to 7"):
@@ -455,7 +512,9 @@ def test_http_round_trip_with_security_headers(server: GameServer) -> None:
     status, _, body = fetch(server, "POST", "/api/matches", payload, {"Content-Type": JSON})
     assert status == 201
     match_id = json.loads(body)["state"]["id"]
-    status, _, body = fetch(server, "POST", f"/api/matches/{match_id}/ready", b"", {})
+    ready = f"/api/matches/{match_id}/ready"
+    assert fetch(server, "POST", ready, b"", {})[0] == 415
+    status, _, body = fetch(server, "POST", ready, b"", {"Content-Type": JSON})
     assert (status, json.loads(body)["state"]["round"]["label"]) == (200, "1-2")
     status, _, body = fetch(server, "DELETE", f"/api/matches/{match_id}")
     assert (status, json.loads(body)) == (200, {"ok": True})
@@ -471,16 +530,165 @@ def test_http_rejects_oversized_and_malformed_bodies(server: GameServer) -> None
     assert (status, json.loads(body)["error"]) == (400, "bad Content-Length")
 
 
-def test_http_hides_unexpected_errors(server: GameServer, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_http_hides_unexpected_errors_and_logs_them(
+    server: GameServer, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     def boom(*_args: object, **_kwargs: object) -> Response:
         message = "secret detail"
         raise RuntimeError(message)
 
     monkeypatch.setattr(server.api, "handle", boom)
-    status, _, body = fetch(server, "GET", "/api/health")
+    with caplog.at_level(logging.ERROR, logger="tft.server"):
+        status, _, body = fetch(server, "GET", "/api/health")
     assert status == 500
     assert json.loads(body) == {"ok": False, "error": "internal error"}
     assert b"secret" not in body
+    # The person who runs the server gets the whole story, also on a quiet server.
+    record = next(record for record in caplog.records if record.name == "tft.server")
+    assert record.getMessage() == "unhandled error while answering a GET request"
+    assert record.exc_info is not None
+    assert "secret detail" in str(record.exc_info[1])
+
+
+def test_check_source_and_host_name() -> None:
+    assert host_name("LocalHost:8000") == "localhost"
+    assert host_name(" 127.0.0.1 ") == "127.0.0.1"
+    assert host_name("[::1]:8000") == "[::1]"
+    assert host_name("") == ""
+    # A server that listens for the network answers to any name, but not to another site's page.
+    check_source("GET", "example.org", None, loopback=False)
+    check_source("POST", "example.org", "https://example.org", loopback=False)
+    check_source("DELETE", "example.org:8000", "http://example.org:8000", loopback=False)
+    for origin in ("http://evil.example", "null", "http://example.org:9"):
+        with pytest.raises(ApiError, match="another site") as foreign:
+            check_source("POST", "example.org", origin, loopback=False)
+        assert foreign.value.status == 403
+    # A read changes nothing, and the browser keeps its answer from the other site.
+    check_source("GET", "127.0.0.1:8000", "http://evil.example", loopback=True)
+    for host in ("evil.example", "evil.example:8000", "", "127.0.0.1.evil.example"):
+        with pytest.raises(ApiError, match="its own address") as rebound:
+            check_source("GET", host, None, loopback=True)
+        assert rebound.value.status == 403
+
+
+def test_http_refuses_what_another_site_sends(server: GameServer) -> None:
+    own = server.url.rstrip("/")
+    port = int(server.server_address[1])
+    payload = json.dumps({"seed": 3, "bots": 1}).encode()
+    for origin in ("http://evil.example", "null"):
+        headers = {"Content-Type": JSON, "Origin": origin}
+        status, _, body = fetch(server, "POST", "/api/matches", payload, headers)
+        assert (status, json.loads(body)["error"]) == (
+            403,
+            "requests from another site are refused",
+        )
+    # The form another site can post without asking has no JSON type.
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+    assert fetch(server, "POST", "/api/matches", b"", form)[0] == 415
+    status, _, body = fetch(
+        server, "POST", "/api/matches", payload, {"Content-Type": JSON, "Origin": own}
+    )
+    assert status == 201
+    match_id = json.loads(body)["state"]["id"]
+    foreign = {"Origin": "http://evil.example"}
+    assert fetch(server, "DELETE", f"/api/matches/{match_id}", None, foreign)[0] == 403
+    # A page that points its own name at this machine gives itself away in the Host header.
+    status, _, body = fetch(server, "GET", "/api/matches", None, {"Host": f"evil.example:{port}"})
+    assert (status, json.loads(body)["error"]) == (
+        403,
+        "this server only answers to its own address",
+    )
+    status, _, body = fetch(server, "GET", "/api/matches", None, {"Host": f"localhost:{port}"})
+    assert (status, len(json.loads(body)["matches"])) == (200, 1)
+
+
+def exchange(port: int, request: bytes) -> bytes:
+    """Send raw bytes to a local server and return everything it answers before it hangs up."""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as raw:
+        raw.sendall(request)
+        chunks = []
+        while chunk := raw.recv(4096):
+            chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def test_http_answers_every_method_in_its_own_shape(server: GameServer) -> None:
+    port = int(server.server_address[1])
+    status, headers, body = fetch(server, "HEAD", "/")
+    assert (status, body) == (200, b"")
+    assert int(headers["Content-Length"]) > 0
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Server"] == "tft"
+    status, headers, body = fetch(server, "PUT", "/api/health", b"{}", {"Content-Type": JSON})
+    assert (status, json.loads(body)) == (501, {"ok": False, "error": "not implemented"})
+    assert headers["Content-Type"] == JSON
+    assert headers["Content-Security-Policy"].startswith("default-src 'self'")
+    assert fetch(server, "HEAD", "/api/nowhere")[::2] == (404, b"")
+    # What the standard library rejects by itself is answered the same way and never repeated.
+    answer = exchange(port, b"<svg/onload=alert(1)> / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    head, _, body = answer.partition(b"\r\n\r\n")
+    assert head.startswith(b"HTTP/1.0 501 ")
+    assert b"X-Content-Type-Options: nosniff" in head
+    assert json.loads(body) == {"ok": False, "error": "not implemented"}
+    assert b"svg" not in answer
+    answer = exchange(port, b"NONSENSE\r\n\r\n")
+    head, _, body = answer.partition(b"\r\n\r\n")
+    assert head.startswith(b"HTTP/1.0 400 ")
+    assert b"Content-Security-Policy: default-src 'self'" in head
+    assert json.loads(body) == {"ok": False, "error": "bad request"}
+    assert b"NONSENSE" not in answer
+
+
+def test_http_wants_a_length_with_a_body(server: GameServer) -> None:
+    connection = http.client.HTTPConnection("127.0.0.1", int(server.server_address[1]), timeout=5)
+    try:
+        connection.putrequest("POST", "/api/matches")
+        connection.putheader("Content-Type", JSON)
+        connection.putheader("Transfer-Encoding", "chunked")
+        connection.endheaders()
+        connection.send(b"0\r\n\r\n")
+        response = connection.getresponse()
+        error = json.loads(response.read())["error"]
+    finally:
+        connection.close()
+    assert (response.status, error) == (411, "send the body with a Content-Length")
+    assert json.loads(fetch(server, "GET", "/api/matches")[2])["matches"] == []
+
+
+def test_http_drops_a_connection_that_stays_silent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(RequestHandler, "timeout", 0.2)
+    quiet = create_server("127.0.0.1", 0, lobby=Lobby(SHORT))
+    port = int(quiet.server_address[1])
+    thread = threading.Thread(target=quiet.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert exchange(port, b"") == b""
+        # A body that stops half-way gets no answer either: there is nobody left to read it.
+        head = b"POST /api/matches HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        half = head + b"Content-Type: application/json\r\nContent-Length: 10\r\n\r\n{"
+        assert exchange(port, half) == b""
+        assert json.loads(fetch(quiet, "GET", "/api/matches")[2])["matches"] == []
+    finally:
+        quiet.shutdown()
+        quiet.server_close()
+        thread.join(timeout=5)
+
+
+def test_a_client_that_has_left_is_not_an_error(server: GameServer) -> None:
+    class Gone(io.BytesIO):
+        def write(self, _data: Any, /) -> int:
+            raise BrokenPipeError
+
+    handler = RequestHandler.__new__(RequestHandler)
+    handler.server = server
+    handler.request_version = "HTTP/1.1"
+    handler.requestline = "GET / HTTP/1.1"
+    handler.client_address = ("127.0.0.1", 1)
+    handler.command = "GET"
+    handler.close_connection = False
+    handler.wfile = Gone()
+    handler.send(json_response(200, {"ok": True}))
+    assert handler.close_connection is True
 
 
 def test_verbose_servers_log_requests(capfd: pytest.CaptureFixture[str]) -> None:

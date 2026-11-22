@@ -14,7 +14,9 @@ failure is reported as ``internal error`` and nothing more.
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import logging
 import secrets
 import threading
 from collections.abc import Callable, Mapping
@@ -44,6 +46,13 @@ MAX_ARGS = 4
 MAX_SEED = 2**31 - 1
 JSON_TYPE = "application/json"
 TEXT_TYPE = "text/plain; charset=utf-8"
+SOCKET_TIMEOUT = 15
+"""Seconds a connection may stay silent before it is dropped."""
+
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+"""The names a server that listens on this machine only is reached by."""
+
+LOG = logging.getLogger(__name__)
 
 STATIC: Mapping[str, tuple[str, str]] = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -72,7 +81,7 @@ SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
         "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'",
     ),
 )
-"""Headers sent with every response."""
+"""Headers sent with every response, also with the errors the standard library raises."""
 
 MATCH_ROUTES = frozenset({"actions", "ready", "step", "preview", "spectate", "replay"})
 
@@ -199,13 +208,22 @@ class Lobby:
         """Start an empty lobby that plays under ``rules`` on ``pack``, by default the starter pack.
 
         Raises:
-            ValueError: If ``max_matches`` is not positive.
+            ValueError: If ``max_matches`` is not positive, the pack is too short
+                for one slice, or the rules leave no room for a bot.
         """
         if max_matches <= 0:
             msg = "max_matches must be positive"
             raise ValueError(msg)
         self.rules = rules
         self.pack = pack if pack is not None else load_builtin()
+        if len(self.pack.dates) < rules.slice_bars:
+            dates = len(self.pack.dates)
+            msg = f"a slice of {rules.slice_bars} bars does not fit the pack's {dates} dates"
+            raise ValueError(msg)
+        fewest, most = self.bots_range()
+        if fewest > most:
+            msg = f"the rules need {rules.min_players} players, the server seats at most {most + 1}"
+            raise ValueError(msg)
         self.max_matches = max_matches
         self.matches: dict[str, Match] = {}
         self.lock = threading.Lock()
@@ -216,15 +234,21 @@ class Lobby:
         self.clock += 1
         return self.clock
 
+    def bots_range(self) -> tuple[int, int]:
+        """Return the fewest and the most bots a match can have under the lobby's rules."""
+        most = min(self.rules.lobby_size, len(BOT_NAMES)) - 1
+        return max(1, self.rules.min_players - 1), most
+
     def create(self, seed: int, bots: int, *, market: bool, spectate: bool) -> Match:
         """Create a match against ``bots`` bots, or a bots-only match to watch.
 
         Raises:
-            ValueError: If the number of bots does not fit the lobby.
+            Refusal: If the number of bots does not fit the rules.
         """
-        if not 1 <= bots < len(BOT_NAMES):
-            msg = f"bots must be 1 to {len(BOT_NAMES) - 1}"
-            raise ValueError(msg)
+        fewest, most = self.bots_range()
+        if not fewest <= bots <= most:
+            msg = f"bots must be {fewest} to {most}"
+            raise Refusal(msg)
         seat = None if spectate else SEAT
         names = list(BOT_NAMES[: bots + 1]) if spectate else [SEAT, *BOT_NAMES[:bots]]
         pack = self.pack if market else None
@@ -276,16 +300,19 @@ class Lobby:
 def parse_body(body: bytes, content_type: str) -> Json:
     """Parse a request body as a JSON object; an empty body is an empty object.
 
+    The content type is required even without a body: a page on another site
+    cannot send it without asking the server first, which the server refuses.
+
     Raises:
         ApiError: If the content type is not JSON or the body is not a JSON object.
     """
-    if not body:
-        return {}
     if content_type.split(";", maxsplit=1)[0].strip().lower() != JSON_TYPE:
         raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "send the body as application/json")
+    if not body:
+        return {}
     try:
         data = json.loads(body)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, RecursionError):
         data = None
     if not isinstance(data, dict):
         raise ApiError(HTTPStatus.BAD_REQUEST, "the request body must be a JSON object")
@@ -351,7 +378,9 @@ class Api:
     def __init__(self, lobby: Lobby | None = None) -> None:
         """Serve ``lobby``, or a new one on the default rules and the starter pack."""
         self.lobby = lobby if lobby is not None else Lobby()
-        self.catalog = json_response(HTTPStatus.OK, {"ok": True, **catalog(self.lobby.rules)})
+        fewest, most = self.lobby.bots_range()
+        content = {"ok": True, **catalog(self.lobby.rules), "bots": {"min": fewest, "max": most}}
+        self.catalog = json_response(HTTPStatus.OK, content)
 
     def handle(self, method: str, path: str, body: bytes = b"", content_type: str = "") -> Response:
         """Answer one request; rule refusals and bad requests become JSON errors."""
@@ -411,6 +440,15 @@ class Api:
         """Return the lobby listing."""
         return json_response(HTTPStatus.OK, {"ok": True, "matches": self.lobby.cards()})
 
+    def bots_of(self, data: Json) -> int:
+        """Return the number of bots a request asks for; by default as many as the rules seat.
+
+        Raises:
+            ApiError: If the number does not fit the rules.
+        """
+        fewest, most = self.lobby.bots_range()
+        return whole_number(data.get("bots", most), fewest, most, "bots")
+
     def create_match(self, request: Request) -> Response:
         """Create a match from ``seed``, ``bots``, ``market`` and ``spectate``."""
         data = request.data
@@ -418,7 +456,7 @@ class Api:
         number = (
             secrets.randbelow(MAX_SEED) if seed is None else whole_number(seed, 0, MAX_SEED, "seed")
         )
-        bots = whole_number(data.get("bots", len(BOT_NAMES) - 1), 1, len(BOT_NAMES) - 1, "bots")
+        bots = self.bots_of(data)
         market = flag(data.get("market", True), "market")
         spectate = flag(data.get("spectate", False), "spectate")
         match = self.lobby.create(number, bots, market=market, spectate=spectate)
@@ -489,6 +527,31 @@ class Api:
             return json_response(HTTPStatus.OK, {"ok": True, "replay": match.replay.to_json()})
 
 
+def host_name(host: str) -> str:
+    """Return the name in a Host header: lower case, without the port."""
+    name = host.strip().lower()
+    if name.startswith("["):
+        return name.split("]", maxsplit=1)[0] + "]"
+    return name.split(":", maxsplit=1)[0]
+
+
+def check_source(method: str, host: str, origin: str | None, *, loopback: bool) -> None:
+    """Refuse a request that another site sent through the player's browser.
+
+    A server that listens on this machine only answers to a loopback name,
+    which stops a page that points its own domain at ``127.0.0.1``. A request
+    that changes something must not carry the origin of another site.
+
+    Raises:
+        ApiError: With status 403 for such a request.
+    """
+    if loopback and host_name(host) not in LOOPBACK_NAMES:
+        raise ApiError(HTTPStatus.FORBIDDEN, "this server only answers to its own address")
+    own = (f"http://{host}", f"https://{host}")
+    if method != "GET" and origin is not None and origin not in own:
+        raise ApiError(HTTPStatus.FORBIDDEN, "requests from another site are refused")
+
+
 def route_key(parts: list[str]) -> tuple[str, str]:
     """Return the route name and the match id for the path parts after ``/api``."""
     if len(parts) == 1:
@@ -525,6 +588,7 @@ class GameServer(ThreadingHTTPServer):
         super().__init__(address, RequestHandler)
         self.api = api
         self.verbose = verbose
+        self.loopback = ipaddress.ip_address(str(self.server_address[0])).is_loopback
 
     @property
     def url(self) -> str:
@@ -537,10 +601,19 @@ class RequestHandler(BaseHTTPRequestHandler):
     """Reads a request, hands it to the :class:`Api`, and writes the answer."""
 
     server_version = "tft"
+    timeout = SOCKET_TIMEOUT
+
+    def version_string(self) -> str:
+        """Name the server in the Server header, without the interpreter's version."""
+        return self.server_version
 
     def do_GET(self) -> None:
         """Answer a GET request."""
         self.answer("GET")
+
+    def do_HEAD(self) -> None:
+        """Answer a HEAD request: what GET would answer, without the body."""
+        self.answer("GET", head=True)
 
     def do_POST(self) -> None:
         """Answer a POST request."""
@@ -554,8 +627,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         """Return the request's body length.
 
         Raises:
-            ApiError: If the Content-Length header is not a number or the body is too large.
+            ApiError: If the body has no Content-Length, the header is not a
+                number, or the body is too large.
         """
+        if "Transfer-Encoding" in self.headers and "Content-Length" not in self.headers:
+            raise ApiError(HTTPStatus.LENGTH_REQUIRED, "send the body with a Content-Length")
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
@@ -566,31 +642,64 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "the request body is too large")
         return length
 
-    def answer(self, method: str) -> None:
-        """Read the body, ask the API, and send its response."""
+    def respond(self, method: str) -> Response:
+        """Check where the request comes from, read its body and ask the API.
+
+        Raises:
+            ApiError: If the request is refused before it reaches the API.
+            OSError: If the client stops sending.
+        """
         game_server = cast("GameServer", self.server)
+        host = self.headers.get("Host", "")
+        check_source(method, host, self.headers.get("Origin"), loopback=game_server.loopback)
+        body = self.rfile.read(self.body_length())
+        content_type = self.headers.get("Content-Type", "")
+        return game_server.api.handle(method, self.path, body, content_type)
+
+    def answer(self, method: str, *, head: bool = False) -> None:
+        """Send the API's response to the request; ``head`` leaves the body out."""
         try:
-            body = self.rfile.read(self.body_length())
-            content_type = self.headers.get("Content-Type", "")
-            response = game_server.api.handle(method, self.path, body, content_type)
+            response = self.respond(method)
         except ApiError as error:
             response = json_response(error.status, {"ok": False, "error": error.message})
-        except Exception:  # the last line of defence: never leak details
-            self.log_error("unhandled error while answering a %s request", method)
+        except OSError:  # the client stopped sending or went away
+            self.close_connection = True
+            return
+        except Exception:  # the last line of defence: log it here, never leak details
+            LOG.exception("unhandled error while answering a %s request", method)
             response = json_response(
                 HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": "internal error"}
             )
-        self.send(response)
+        self.send(response, head=head)
 
-    def send(self, response: Response) -> None:
-        """Write ``response`` with the security headers."""
+    def write_head(self, response: Response) -> None:
+        """Write the status line and the headers of ``response``, the security headers included."""
         self.send_response(response.status)
         for name, value in SECURITY_HEADERS:
             self.send_header(name, value)
         self.send_header("Content-Type", response.content_type)
         self.send_header("Content-Length", str(len(response.body)))
         self.end_headers()
-        _ = self.wfile.write(response.body)
+
+    def send(self, response: Response, *, head: bool = False) -> None:
+        """Write ``response``; ``head`` leaves the body out. A client that has left is no error."""
+        try:
+            self.write_head(response)
+            if not head:
+                _ = self.wfile.write(response.body)
+        except ConnectionError:
+            self.close_connection = True
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        """Answer what the standard library rejects in the API's own shape.
+
+        Its page would repeat the request and carry none of the security
+        headers; this answer names the status and nothing else.
+        """
+        del message, explain  # they can hold parts of the request
+        self.close_connection = True
+        error = HTTPStatus(code).phrase.lower()
+        self.send(json_response(code, {"ok": False, "error": error}), head=self.command == "HEAD")
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - standard library name
         """Log requests only when the server is verbose."""

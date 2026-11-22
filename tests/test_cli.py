@@ -412,3 +412,11 @@ def test_serve_rejects_a_bad_port() -> None:
     fake = FakeConsole([])
     assert main(["serve", "--port", "70000"], fake.console) == 2
     assert "error: port must be 0 to 65535" in fake.text
+
+
+def test_serve_rejects_rules_the_pack_cannot_play(tmp_path: Path) -> None:
+    rules_path = tmp_path / "rules.toml"
+    rules_path.write_text(Rules(stages=1, slice_bars=61).to_toml(), encoding="utf-8")
+    fake = FakeConsole([])
+    assert main(["serve", "--port", "0", "--rules", str(rules_path)], fake.console) == 2
+    assert "error: a slice of 61 bars does not fit the pack's 60 dates" in fake.text

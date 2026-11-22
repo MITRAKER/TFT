@@ -355,9 +355,13 @@ class Player:
     def buy(self, slot: int, pool: Pool) -> None:
         """Buy the champion in shop ``slot`` onto the bench and merge star-ups.
 
+        A shop is rolled without reserving copies, so the last copy of a
+        champion can be gone by the time its card is clicked.
+
         Raises:
-            Refusal: If the slot is invalid or empty, the gold is short, or
-                the bench is full and the purchase would not complete a star-up.
+            Refusal: If the slot is invalid or empty, no copy is left in the
+                pool, the gold is short, or the bench is full and the purchase
+                would not complete a star-up.
         """
         if not 0 <= slot < len(self.shop):
             msg = f"shop slot {slot} does not exist"
@@ -365,6 +369,9 @@ class Player:
         unit = self.shop[slot]
         if unit is None:
             msg = f"shop slot {slot} is empty"
+            raise Refusal(msg)
+        if pool.remaining(unit.name) < 1:
+            msg = f"no copy of {unit.name} is left in the pool"
             raise Refusal(msg)
         if self.gold < unit.cost:
             msg = f"{unit.name} costs {unit.cost} gold, {self.gold} available"
@@ -657,7 +664,8 @@ def greedy_policy(player: Player, pool: Pool, rng: Random) -> None:
     for slot, unit in enumerate(player.shop):
         if unit is None or player.gold < unit.cost or len(player.bench) >= rules.bench_size:
             continue
-        player.buy(slot, pool)
+        if pool.remaining(unit.name) > 0:
+            player.buy(slot, pool)
     while player.bench and len(player.board) < player.board_limit:
         player.field_unit(max(player.bench, key=lambda unit: unit.power(rules)))
     if (

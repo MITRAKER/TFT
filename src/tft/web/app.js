@@ -51,6 +51,8 @@ const view = {
   selection: null,
   arrival: null,
   auto: false,
+  autoRun: 0,
+  autoTimer: null,
   busy: false,
   timer: null,
   skipScene: null,
@@ -61,9 +63,11 @@ class Refused extends Error {}
 
 async function request(method, path, body) {
   const options = { method, headers: {} };
-  if (body !== undefined) {
+  if (method === "POST") {
+    // The server takes a POST only as JSON, also one with nothing to say: a page on another
+    // site cannot send that type without asking first.
     options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
+    options.body = JSON.stringify(body === undefined ? {} : body);
   }
   let response;
   try {
@@ -120,7 +124,7 @@ function show(screen) {
     $(name).hidden = name !== screen;
   }
   if (screen !== "spectate") {
-    view.auto = false;
+    stopAuto();
   }
   $("toast").className = "toast";
 }
@@ -1007,21 +1011,55 @@ async function stepOnce() {
   renderSpectate();
 }
 
-function autoLoop() {
-  if (!view.auto || !view.match || view.match.phase === "finished") {
-    view.auto = false;
-    $("btn-auto").setAttribute("aria-pressed", "false");
+/** Switch auto-play off and forget the step it was waiting to take. */
+function stopAuto() {
+  view.auto = false;
+  view.autoRun += 1;
+  window.clearTimeout(view.autoTimer);
+  $("btn-auto").setAttribute("aria-pressed", "false");
+}
+
+/**
+ * Take one step of auto-play and arrange the next. `run` is the number auto-play had when it
+ * was switched on: a step that wakes up after it was switched off, or off and on again, finds
+ * another number and stops, so there is never more than one chain of steps.
+ */
+async function autoStep(run) {
+  if (run !== view.autoRun) {
     return;
   }
-  guarded(stepOnce).then(() => window.setTimeout(autoLoop, AUTO_DELAY_MS));
+  if (!view.match || view.match.phase === "finished") {
+    stopAuto();
+    return;
+  }
+  if (!view.busy) {
+    view.busy = true;
+    try {
+      await stepOnce();
+    } catch (error) {
+      // The server said no, or is gone: asking again every second would not change that.
+      stopAuto();
+      if (!(error instanceof Refused)) {
+        throw error;
+      }
+      toast(error.message, true);
+    } finally {
+      view.busy = false;
+    }
+  }
+  if (run === view.autoRun) {
+    view.autoTimer = window.setTimeout(() => autoStep(run), AUTO_DELAY_MS);
+  }
 }
 
 function toggleAuto() {
-  view.auto = !view.auto;
-  $("btn-auto").setAttribute("aria-pressed", String(view.auto));
   if (view.auto) {
-    autoLoop();
+    stopAuto();
+    return;
   }
+  view.auto = true;
+  $("btn-auto").setAttribute("aria-pressed", "true");
+  autoStep(view.autoRun);
 }
 
 /* Wiring ------------------------------------------------------------------- */
@@ -1098,6 +1136,18 @@ function refresh() {
   }
 }
 
+/** Let the lobby offer as many bots as the server's rules seat. */
+function offerBots(range) {
+  if (!range) {
+    return;
+  }
+  const slider = $("opt-bots");
+  slider.min = String(range.min);
+  slider.max = String(range.max);
+  slider.value = String(range.max);
+  $("opt-bots-out").textContent = slider.value;
+}
+
 async function start() {
   wire();
   decorate(document);
@@ -1107,6 +1157,7 @@ async function start() {
   await guarded(async () => {
     view.catalog = await request("GET", "/api/catalog");
     view.recipes = recipesOf(view.catalog);
+    offerBots(view.catalog.bots);
     document.title = view.catalog.name;
     $("brand").textContent = view.catalog.name;
     renderShowcase();

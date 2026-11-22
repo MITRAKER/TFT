@@ -208,16 +208,26 @@ Every number above is a rule (`tft rules` prints them all), and
 
 `tft serve` answers these routes with JSON. A good answer has `"ok": true`
 and its data; a refused one has `"ok": false` and an `error` sentence, with
-status 400 (a bad request, or an action the rules do not allow), 404, 405,
-409 (the match is not waiting for that), 413 (a body over 64 KiB), 415 (a
-body that is not `application/json`) or 500 (`internal error`, nothing more).
+status 400 (a bad request, or an action the rules do not allow), 403 (see
+below), 404, 405, 409 (the match is not waiting for that), 411 (a body
+without a `Content-Length`), 413 (a body over 64 KiB), 415 (a `POST` that is
+not sent as `application/json`, also one without a body), 500 (`internal
+error`, nothing more; the traceback goes to the server's log) or 501 (a
+method the server does not have).
+
+The server protects the player's browser from other sites. Every `POST` must
+be JSON, which a page on another site cannot send without asking first; a
+request that changes something is refused with 403 when its `Origin` is not
+the server's own; and a server on `127.0.0.1` answers only to `127.0.0.1`,
+`localhost` and `[::1]`, so a page that points its own domain at your machine
+gets 403 as well. A connection that stays silent for 15 seconds is dropped.
 
 | Method and path | What it does |
 | --- | --- |
 | `GET /api/health` | The status, the game's name and the package version |
-| `GET /api/catalog` | Static content for tooltips: champions, traits, strategies, components, items, augments, the grid and the scoring numbers |
+| `GET /api/catalog` | Static content for tooltips: champions, traits, strategies, components, items, augments, the grid, the scoring numbers and how many bots the rules seat |
 | `GET /api/matches` | The matches on the server, most recently used first |
-| `POST /api/matches` | Create a match and return its state with status 201. The body is optional: `seed` (0 to 2147483647, random when left out), `bots` (1 to 7, default 7), `market` (default `true`; `false` decides fights by power) and `spectate` (default `false`; `true` creates a bots-only match) |
+| `POST /api/matches` | Create a match and return its state with status 201. The body is optional: `seed` (0 to 2147483647, random when left out), `bots` (1 to 7 under the default rules, by default as many as the rules seat), `market` (default `true`; `false` decides fights by power) and `spectate` (default `false`; `true` creates a bots-only match) |
 | `GET /api/matches/{id}` | The match as its player sees it |
 | `DELETE /api/matches/{id}` | Forget the match |
 | `POST /api/matches/{id}/actions` | One planning action, for example `{"kind": "buy", "args": [0]}`. The kinds are `buy`, `sell`, `reroll`, `xp`, `field`, `move`, `bench`, `augment`, `craft` and `equip`; the arguments are up to four whole numbers |

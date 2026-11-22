@@ -169,6 +169,16 @@ def test_buy_rejects_bad_purchases() -> None:
         rich.buy(4, pool)
 
 
+def test_buying_a_card_whose_last_copy_is_gone_is_refused() -> None:
+    player, pool = stocked_player(gold=5), Pool()
+    pool.take("Pip Squeak", pool.remaining("Pip Squeak"))
+    with pytest.raises(Refusal, match="no copy of Pip Squeak is left in the pool"):
+        player.buy(0, pool)
+    assert (player.gold, player.bench, player.shop[0]) == (5, [], PIP)
+    player.buy(1, pool)
+    assert [unit.champion for unit in player.bench] == [DRONE]
+
+
 def test_buying_the_third_copy_merges_even_on_a_full_bench() -> None:
     player, pool = stocked_player(gold=50), Pool()
     player.bench = [Unit(unit) for unit in CHAMPIONS[1 : BENCH_SIZE - 1]] + [Unit(PIP), Unit(PIP)]
@@ -311,6 +321,15 @@ def test_greedy_policy_buys_fields_and_levels() -> None:
     assert player.level >= 2
     with pytest.raises(ValueError, match="not been rolled"):
         greedy_policy(Player("tester"), pool, Random(0))
+
+
+def test_greedy_policy_passes_a_card_whose_pool_is_empty() -> None:
+    player, pool = stocked_player(gold=30, level=2), Pool()
+    pool.take("Pip Squeak", pool.remaining("Pip Squeak"))
+    greedy_policy(player, pool, Random(0))
+    assert player.shop[0] is PIP
+    assert PIP not in [unit.champion for unit in player.units]
+    assert DRONE in [unit.champion for unit in player.units]
 
 
 def test_greedy_policy_buys_experience_only_with_a_reserve() -> None:

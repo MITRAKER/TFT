@@ -252,6 +252,44 @@ test("a bot match can be watched round by round", async ({ page }) => {
   expect(problems).toEqual([]);
 });
 
+test("auto-play takes one step at a time and stops when the server refuses", async ({ page }) => {
+  const problems = watchForProblems(page);
+  const steps = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/step")) {
+      steps.push(request.postData());
+    }
+  });
+  await page.goto("/");
+  await page.locator("#opt-bots").fill("2");
+  // A seed whose match lasts longer than this test watches it.
+  await page.fill("#opt-seed", "11");
+  await page.click("#btn-watch");
+  await expect(page.locator("#seats .seat-card")).toHaveCount(3);
+  // On, off and on again: the step that was waiting must not carry on beside the new one.
+  await page.click("#btn-auto");
+  await page.click("#btn-auto");
+  await page.click("#btn-auto");
+  await expect(page.locator("#btn-auto")).toHaveAttribute("aria-pressed", "true");
+  await page.waitForTimeout(2600);
+  expect(steps.length).toBeGreaterThanOrEqual(2);
+  expect(steps.length).toBeLessThanOrEqual(4);
+  // Every step is sent as JSON, also though it has nothing to say.
+  expect(steps.every((body) => body === "{}")).toBe(true);
+  // The match disappears from under the page: auto-play gives up instead of asking for ever.
+  const id = await page.evaluate(async () => {
+    const answer = await fetch("/api/matches");
+    return (await answer.json()).matches[0].id;
+  });
+  await page.evaluate((match) => fetch(`/api/matches/${match}`, { method: "DELETE" }), id);
+  await expect(page.locator("#btn-auto")).toHaveAttribute("aria-pressed", "false", { timeout: 5000 });
+  await expect(page.locator("#toast")).toContainText("no such match");
+  const asked = steps.length;
+  await page.waitForTimeout(1500);
+  expect(steps.length).toBe(asked);
+  expect(problems).toEqual([]);
+});
+
 test("on a narrow screen the shop sits right under the bench", async ({ page }) => {
   await page.setViewportSize({ width: 420, height: 820 });
   await startMatch(page, { seed: 3, bots: 2 });
