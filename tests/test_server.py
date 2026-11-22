@@ -631,11 +631,13 @@ def test_http_answers_every_method_in_its_own_shape(server: GameServer) -> None:
     assert b"X-Content-Type-Options: nosniff" in head
     assert json.loads(body) == {"ok": False, "error": "not implemented"}
     assert b"svg" not in answer
+    # A line that is no request at all: before Python 3.13 the standard library answers it as
+    # HTTP/0.9, the body alone; since then with a status line and the headers.
     answer = exchange(port, b"NONSENSE\r\n\r\n")
-    head, _, body = answer.partition(b"\r\n\r\n")
-    assert head.startswith(b"HTTP/1.0 400 ")
-    assert b"Content-Security-Policy: default-src 'self'" in head
+    head, _, body = answer.rpartition(b"\r\n\r\n")
     assert json.loads(body) == {"ok": False, "error": "bad request"}
+    assert head == b"" or head.startswith(b"HTTP/1.0 400 ")
+    assert head == b"" or b"Content-Security-Policy: default-src 'self'" in head
     assert b"NONSENSE" not in answer
 
 
