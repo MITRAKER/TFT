@@ -163,13 +163,15 @@ test("the board stands in an arena that is only scenery", async ({ page }) => {
 });
 
 /**
- * Note in the page every phase the fight scene goes through and, when it opens, the picture
- * that the first figure of my board shows next to its clips. Read it back as `window.scene`.
+ * Note in the page what the fight scene shows while it plays: every phase, the picture the
+ * first figure of my board shows when the fight starts, every kind of effect that appears on
+ * the floor, and who has fallen when the fight is over. Read it back as `window.scene`.
  */
 function watchScene(page) {
   return page.evaluate(() => {
     const floor = document.getElementById("scene-floor");
-    window.scene = { phases: [], figure: null };
+    window.scene = { phases: [], figure: null, effects: [], fallen: null };
+    const fallenOn = (board) => document.querySelectorAll(`#${board} .token[data-down]`).length;
     new MutationObserver(() => {
       const phase = floor.dataset.phase;
       if (!phase) {
@@ -177,7 +179,7 @@ function watchScene(page) {
       }
       window.scene.phases.push(phase);
       const figure = document.querySelector("#scene-mine .figure");
-      if (phase === "advance" && figure) {
+      if (phase === "battle" && figure) {
         const style = getComputedStyle(figure);
         const address = (value) => (/blob:[^")]+/.exec(value) || [""])[0];
         window.scene.figure = {
@@ -186,18 +188,40 @@ function watchScene(page) {
           back: address(style.getPropertyValue("--back")),
         };
       }
+      if (phase === "resolved") {
+        window.scene.fallen = { mine: fallenOn("scene-mine"), theirs: fallenOn("scene-enemy") };
+      }
     }).observe(floor, { attributes: true, attributeFilter: ["data-phase"] });
+    new MutationObserver((changes) => {
+      for (const change of changes) {
+        for (const node of change.addedNodes) {
+          const kind = [...node.classList].find((name) => name !== "fx-item" && name !== "heavy");
+          if (kind && !window.scene.effects.includes(kind)) {
+            window.scene.effects.push(kind);
+          }
+        }
+      }
+    }).observe(document.getElementById("scene-fx"), { childList: true });
   });
 }
 
-test("a fight plays as a scene with both boards before the result", async ({ page }) => {
+/** How far the fighters in the scene are from their own cells, in widths of a cell. */
+function strides(page) {
+  return page.locator("#theatre .token").evaluateAll((tokens) =>
+    tokens.map((token) =>
+      Math.hypot(Number(token.style.getPropertyValue("--mx")), Number(token.style.getPropertyValue("--my"))),
+    ),
+  );
+}
+
+test("a fight is fought out on the floor and ends as the round was decided", async ({ page }) => {
   const problems = watchForProblems(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await startMatch(page, { seed: 9, bots: 7 });
   await buyAndField(page);
   const solid = await canDraw3d(page);
   if (solid) {
-    // The clips of the fight are drawn after the page is up; the board is drawn again with them.
+    // The clips of the fight are drawn after the page is up; the figures get them where they stand.
     await expect(page.locator("#board .hex.occupied .figure.has-clips")).toHaveCount(1, { timeout: 60_000 });
   }
   await watchScene(page);
@@ -206,23 +230,36 @@ test("a fight plays as a scene with both boards before the result", async ({ pag
   await expect(page.locator("#scene-caption")).toContainText("Round 1-1: You against The Market");
   await expect(page.locator("#scene-mine .hex.occupied .token")).toHaveCount(1);
   await expect(page.locator("#scene-enemy .hex.occupied .token")).toHaveCount(2);
-  await expect(page.locator("#scene-mine .token .trace .spark-line")).toBeVisible();
-  // Every fighter carries a size bar, half full until its trade is made.
-  await expect(page.locator("#theatre .token .sizebar .sizebar-fill")).toHaveCount(3);
-  const factors = await page
-    .locator("#theatre .token")
-    .evaluateAll((tokens) => tokens.map((token) => Number(token.style.getPropertyValue("--factor"))));
-  expect(factors.every((factor) => factor >= 0 && factor <= 2)).toBe(true);
-  await expect(page.locator("#scene-floor")).toHaveAttribute("data-phase", "resolved");
+  // Every fighter has a health bar and a bar for its signature move; each side has its own.
+  await expect(page.locator("#theatre .token .healthbar .healthbar-fill")).toHaveCount(3);
+  await expect(page.locator("#theatre .token .manabar .manabar-fill")).toHaveCount(3);
+  await expect(page.locator("#scene-score .team")).toHaveCount(2);
+  await expect(page.locator("#scene-score .team.theirs .team-name")).toHaveText("The Market");
+  // The units leave their cells to meet.
+  await expect.poll(async () => Math.max(...(await strides(page))), { timeout: 4000 }).toBeGreaterThan(0.25);
+  await expect(page.locator("#scene-floor")).toHaveAttribute("data-phase", "resolved", { timeout: 15_000 });
   await expect(page.locator("#scene-mine .token .verdict")).toHaveText(/%|wiped out/);
   await expect(page.locator("#banner")).toBeVisible();
-  await expect(page.locator("#banner .banner-word")).toHaveText(/Victory|Defeat|Draw/);
+  const word = await page.locator("#banner .banner-word").textContent();
+  expect(word).toMatch(/Victory|Defeat|Draw/);
   await expect(page.locator("#dialog-actions button.primary")).toBeVisible();
   await expect(page.locator("#theatre")).toBeHidden();
   const scene = await page.evaluate(() => window.scene);
-  expect(scene.phases).toEqual(["advance", "trading", "resolved"]);
+  expect(scene.phases).toEqual(["battle", "resolved"]);
+  // Blows landed, with numbers, and somebody called out a signature move.
+  expect(scene.effects).toEqual(expect.arrayContaining(["impact", "damage", "ring"]));
+  // The floor agrees with the banner: the side that lost has nobody standing.
+  const lost = { Victory: ["theirs"], Defeat: ["mine"], Draw: ["mine", "theirs"] }[word];
+  const fielded = { mine: 1, theirs: 2 };
+  for (const side of ["mine", "theirs"]) {
+    if (lost.includes(side)) {
+      expect(scene.fallen[side]).toBe(fielded[side]);
+    } else {
+      expect(scene.fallen[side]).toBeLessThan(fielded[side]);
+    }
+  }
   if (solid) {
-    // My units run at the enemy: the figure shows its back, not the clip it stands in.
+    // My units go at the enemy: the figure shows its back, not the clip it stands in.
     expect(scene.figure.back).toMatch(/^blob:/);
     expect(scene.figure.shown).toBe(scene.figure.back);
     expect(scene.figure.shown).not.toBe(scene.figure.idle);
@@ -234,6 +271,7 @@ test("a fight plays as a scene with both boards before the result", async ({ pag
   await expect(page.locator("#theatre")).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page.locator("#theatre")).toBeHidden();
+  await expect(page.locator("#scene-fx .fx-item")).toHaveCount(0);
   await expect(page.locator("#dialog-actions button.primary")).toBeVisible();
   expect(problems).toEqual([]);
 });

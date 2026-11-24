@@ -47,7 +47,8 @@ modules with no dependency and no build step, and it ships inside the package:
 | `logic.js` | Pure helpers with no DOM, tested under Node: what a click means, labels, cell effects, standings |
 | `dom.js` | Element helpers and pictures |
 | `pieces.js` | Unit tokens, hex grids, price charts, item tiles |
-| `scene.js` | The fight scene |
+| `battle.js` | The script of a fight, worked out from the round's result: who moves where, who hits whom, who falls when |
+| `scene.js` | The fight scene: plays that script on the floor |
 | `arena.js` | The scenery around the boards: skyline, platform, statues, pylons, bell, sparks |
 | `art.js` | Flat SVG art as lists of shapes: portraits, trait and component glyphs, icons |
 | `models.js` | The 25 champions and the arena's props as 3D figures built from solid shapes |
@@ -105,12 +106,14 @@ What the client shows:
 - **Rails.** The traits on the board with their breakpoints and bonuses; the
   components and items (click two components to craft, an item and then a
   unit to equip); the augments.
-- **Fight scene.** *Fight* plays the round full screen in an arena with both
-  boards: the bell rings and the units run at each other; while the slice is
-  traded every unit strikes, its price chart is drawn and its size bar moves
-  to what the trade made of it; then a unit that grew jumps in a spin, one
-  that shrank slumps and one that was wiped out falls over; then a banner
-  gives the result. A click, `Enter`, `Space` or `Escape` skips it.
+- **Fight scene.** *Fight* plays the round full screen in an arena, as a
+  fight: the bell rings, the units leave their cells and close with the
+  enemy, strike by hand or shoot from a distance, call out their signature
+  moves, lose health and fall until one side has nobody left. The result was
+  decided before by the trades; the fight is scripted to end the same way,
+  with the weakest trades falling first. Then every unit shows what its own
+  trade did, and a banner gives the result. A click, `Enter`, `Space` or
+  `Escape` skips it.
 - **Round result.** How each origin moved; for every unit its ticker, its
   price chart with the entry and the exit, profit, drawdown, trades, size,
   result and score; the opponent's board; up to three lessons; every fight

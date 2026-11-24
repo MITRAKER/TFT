@@ -67,6 +67,7 @@ STATIC: Mapping[str, tuple[str, str]] = {
     "/pieces.js": ("pieces.js", "text/javascript; charset=utf-8"),
     "/scene.js": ("scene.js", "text/javascript; charset=utf-8"),
     "/arena.js": ("arena.js", "text/javascript; charset=utf-8"),
+    "/battle.js": ("battle.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/favicon.svg": ("favicon.svg", "image/svg+xml"),
 }

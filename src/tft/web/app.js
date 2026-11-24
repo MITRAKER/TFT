@@ -854,12 +854,20 @@ function showFight(state) {
     floor: $("scene-floor"),
     mine: $("scene-mine"),
     enemy: $("scene-enemy"),
+    fx: $("scene-fx"),
+    score: $("scene-score"),
     banner: $("banner"),
   };
   const versus = summary.opponent ? `You against ${summary.opponent}` : "Your board";
   const where = summary.slice_label ? `, trading ${summary.slice_label}` : "";
   $("scene-caption").textContent = `Round ${summary.round_label}: ${versus}${where}`;
-  view.skipScene = playFight(stage, summary, state.board, view.recipes, afterFight);
+  const champions = (view.catalog && view.catalog.champions) || [];
+  const context = {
+    fights: state.last.report ? state.last.report.fights : [],
+    seat: state.seat ? state.seat.name : "",
+    abilities: new Map(champions.map((champion) => [champion.name, champion.ability])),
+  };
+  view.skipScene = playFight(stage, summary, state.board, view.recipes, context, afterFight);
 }
 
 function fight() {

@@ -164,14 +164,6 @@ export function factorOf(line) {
   return line.size > 0 ? line.score / line.size : 0;
 }
 
-/**
- * How full a unit's size bar is after its trade, where 1 is the size it went in with: the
- * factor of the trade, kept between an empty bar and a full one, which is twice the size.
- */
-export function barOf(line) {
-  return Math.min(Math.max(factorOf(line), 0), 2);
-}
-
 /** How a unit's round went: "out" (wiped out), "up", "down" or "flat". */
 export function resultTone(line) {
   if (!(line.size > 0)) {
@@ -200,15 +192,6 @@ export function resultLabel(line) {
 /** Where a cell of the opposing board is drawn: turned around to face the player. */
 export function mirrorCell(board, row, col) {
   return [board.rows - 1 - row, board.cols - 1 - col];
-}
-
-/**
- * A unit's place in the rhythm of a fight, from 0 up to 1, by its cell: neighbours get
- * different beats, so a board does not strike as one body.
- */
-export function beatOf(cell) {
-  const [row, col] = cell || [0, 0];
-  return ((row * 3 + col * 5) % 8) / 8;
 }
 
 /**

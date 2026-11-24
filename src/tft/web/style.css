@@ -1111,7 +1111,7 @@ main {
   transform: translateY(-38%);
 }
 
-.floor[data-phase="advance"] .bell {
+.floor[data-phase="battle"] .bell {
   animation: ring 0.7s ease-in-out both;
 }
 
@@ -1520,11 +1520,10 @@ button.hex:focus-visible {
   font-size: 0.95rem;
 }
 
-/* The fight scene, driven by data-phase on the floor: advance, trading, resolved. */
+/* The fight scene, played by scene.js: data-phase on the floor is "battle" while the script of
+   the fight runs, then "resolved" while every unit shows what its own trade did. */
 
-.sizebar,
-.ticks,
-.trace,
+.bars,
 .verdict {
   display: none;
 }
@@ -1538,431 +1537,127 @@ button.hex:focus-visible {
   --shade: 0;
 }
 
-/* Advance: both boards run at each other along the floor and stay where they meet. The rules
-   match in every phase, so the tokens hold their ground until the scene ends. The tokens also
-   stand a little in front of the floor: with its foot exactly on the floor, Chromium at times
-   paints the bottom of a token behind the tiles. */
-
-.floor[data-phase] .board.mine .hex > .token {
-  animation: advance-mine 0.7s ease-in-out both;
-}
-
-.floor[data-phase] .board.enemy .hex > .token {
-  animation: advance-enemy 0.7s ease-in-out both;
-}
-
-@keyframes advance-mine {
-  from {
-    transform: translateX(-50%) translateY(0) rotateX(calc(var(--tilt) * -1)) translateZ(12px);
-  }
-
-  to {
-    transform: translateX(-50%) translateY(calc(var(--hex) * -0.7)) rotateX(calc(var(--tilt) * -1))
-      translateZ(12px);
-  }
-}
-
-@keyframes advance-enemy {
-  from {
-    transform: translateX(-50%) translateY(0) rotateX(calc(var(--tilt) * -1)) translateZ(12px);
-  }
-
-  to {
-    transform: translateX(-50%) translateY(calc(var(--hex) * 0.6)) rotateX(calc(var(--tilt) * -1))
-      translateZ(12px);
-  }
-}
-
-/* My figures show their backs while they run and fight; the other board's face the camera.
-   The hops are in the clips. */
-
-.floor[data-phase="advance"] .board.mine .has-clips,
-.floor[data-phase="trading"] .board.mine .has-clips {
-  background-image: var(--back);
-  animation-duration: 0.52s, 0.8s;
-}
-
-.floor[data-phase="advance"] .board.enemy .has-clips,
-.floor[data-phase="trading"] .board.enemy .has-clips {
-  background-image: var(--charge);
-  animation-duration: 0.52s, 0.8s;
-}
-
-/* A figure whose clips are still being drawn, and a flat portrait, hop as they are. */
-
-.floor[data-phase="advance"] .figure:not(.has-clips) {
-  animation:
-    frames 1.6s steps(8, jump-none) var(--phase, 0s) infinite,
-    hop 0.26s ease-out infinite;
-}
-
-.floor[data-phase="advance"] .token .disc {
-  animation: hop 0.26s ease-out infinite;
-}
-
-/* The chart stands above the unit in every phase, inside the token's own box: that keeps the
-   box as tall as a jump, and Chromium paints nothing above it. The chart shows while trading. */
-
-.floor[data-phase] .token .trace {
-  order: -1;
-  display: block;
-  width: 100%;
-  margin-bottom: 4%;
-  padding: 2px 3px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(6, 9, 18, 0.9);
-  visibility: hidden;
+/* A fighter is moved over the floor through --mx and --my, in widths of a cell from its own
+   cell; scene.js sets them in every frame. It stands a little in front of the floor: with its
+   foot exactly on the floor, Chromium at times paints the bottom of a token behind the tiles. */
+.floor[data-phase] .hex > .token {
+  transform: translateX(-50%) translate(calc(var(--hex) * var(--mx, 0)), calc(var(--hex) * var(--my, 0)))
+    rotateX(calc(var(--tilt) * -1)) translateZ(12px);
 }
 
 .floor[data-phase] .token .stars {
   display: none;
 }
 
-/* The size bar: half full is the size a unit went in with. While it trades the bar moves to
-   what the trade made of it: fuller and green, emptier and red, or empty. */
-
-.floor[data-phase] .token .sizebar {
+/* The bars stand over the unit's head, inside the token's own box. Their margin keeps the box
+   as tall as a jump: Chromium paints nothing of a token above its box. */
+.floor[data-phase] .token .bars {
   order: -1;
-  position: relative;
+  display: grid;
+  gap: 2px;
+  width: 78%;
+  margin: 20% auto 4%;
+}
+
+.healthbar,
+.manabar {
   display: block;
-  width: 74%;
-  height: 6px;
-  margin: 0 auto 3%;
-  border-radius: 3px;
-  background: rgba(6, 9, 18, 0.9);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
   overflow: hidden;
-}
-
-.sizebar::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 50%;
-  width: 1px;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.sizebar-fill {
-  display: block;
-  width: 50%;
-  height: 100%;
-  background: var(--info);
-  transition:
-    width 1.3s ease-in-out calc(var(--beat, 0) * 0.3s),
-    background-color 0.4s ease 0.5s;
-}
-
-.floor[data-phase="trading"] .sizebar-fill,
-.floor[data-phase="resolved"] .sizebar-fill {
-  width: calc(var(--factor, 1) * 50%);
-}
-
-.floor[data-phase="trading"] .token[data-result="up"] .sizebar-fill,
-.floor[data-phase="resolved"] .token[data-result="up"] .sizebar-fill {
-  background: var(--good);
-}
-
-.floor[data-phase="trading"] .token[data-result="down"] .sizebar-fill,
-.floor[data-phase="trading"] .token[data-result="out"] .sizebar-fill,
-.floor[data-phase="resolved"] .token[data-result="down"] .sizebar-fill,
-.floor[data-phase="resolved"] .token[data-result="out"] .sizebar-fill {
-  background: var(--bad);
-}
-
-.floor[data-phase="trading"] .token .trace {
-  visibility: visible;
-  animation: pop 0.25s ease-out both;
-}
-
-.floor[data-phase="trading"] .trace .spark-line {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: draw 1.35s ease-in-out forwards;
-}
-
-.floor[data-phase="trading"] .trace circle {
-  opacity: 0;
-  animation: appear 0.3s ease-out 1.1s forwards;
-}
-
-/* Trading: every unit strikes at the enemy in bursts of two, mine up the screen and theirs
-   down, and flashes on each strike. --beat spreads the units so a board does not strike as one. */
-
-.floor[data-phase="trading"] .board.mine .stand {
-  animation: strike-up 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite;
-}
-
-.floor[data-phase="trading"] .board.enemy .stand {
-  animation: strike-down 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite;
-}
-
-.floor[data-phase="trading"] .figure {
-  animation:
-    frames 1.6s steps(8, jump-none) var(--phase, 0s) infinite,
-    flash 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite;
-}
-
-.floor[data-phase="trading"] .board.mine .disc {
-  animation:
-    strike-up 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite,
-    flash-flat 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite;
-}
-
-.floor[data-phase="trading"] .board.enemy .disc {
-  animation:
-    strike-down 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite,
-    flash-flat 0.8s ease-in-out calc(var(--beat, 0) * 0.5s) infinite;
-}
-
-@keyframes strike-up {
-  0%,
-  20%,
-  40%,
-  100% {
-    transform: translateY(0);
-  }
-
-  9%,
-  29% {
-    transform: translateY(-13%);
-  }
-}
-
-@keyframes strike-down {
-  0%,
-  20%,
-  40%,
-  100% {
-    transform: translateY(0);
-  }
-
-  9%,
-  29% {
-    transform: translateY(11%);
-  }
-}
-
-/* The figure keeps its rim of light while it flashes. */
-@keyframes flash {
-  0%,
-  20%,
-  40%,
-  100% {
-    filter: drop-shadow(0 0 1px rgba(176, 196, 255, 0.6)) brightness(1);
-  }
-
-  9%,
-  29% {
-    filter: drop-shadow(0 0 1px rgba(176, 196, 255, 0.6)) brightness(1.5);
-  }
-}
-
-@keyframes flash-flat {
-  0%,
-  20%,
-  40%,
-  100% {
-    filter: brightness(1);
-  }
-
-  9%,
-  29% {
-    filter: brightness(1.5);
-  }
-}
-
-/* While it trades, a unit that is gaining sends marks up and one that is losing drops them:
-   the ticks of the tape. They stay inside the token's box, like everything a token shows. */
-
-.floor[data-phase="trading"] .token .ticks {
-  position: absolute;
-  inset: 34% 6% auto;
-  z-index: 2;
-  display: block;
-  height: 38%;
-  pointer-events: none;
-}
-
-.tick {
-  position: absolute;
-  bottom: 0;
-  width: 0;
-  height: 0;
-  border: 0.62em solid transparent;
-  border-top-width: 0;
-  border-bottom-width: 0.9em;
-  border-bottom-color: var(--good);
-  opacity: 0;
-  animation: tick-up 0.9s ease-out infinite;
-}
-
-.tick.first {
-  left: 8%;
-  animation-delay: calc(var(--beat, 0) * 0.5s);
-}
-
-.tick.second {
-  left: 44%;
-  animation-delay: calc(var(--beat, 0) * 0.5s + 0.3s);
-}
-
-.tick.third {
-  left: 78%;
-  animation-delay: calc(var(--beat, 0) * 0.5s + 0.6s);
-}
-
-.token[data-result="down"] .tick,
-.token[data-result="out"] .tick {
-  top: 0;
-  bottom: auto;
-  border-top-width: 0.9em;
-  border-bottom-width: 0;
-  border-top-color: var(--bad);
-  animation-name: tick-down;
-}
-
-.token[data-result="flat"] .tick {
-  display: none;
-}
-
-@keyframes tick-up {
-  0% {
-    opacity: 0;
-    transform: translateY(0);
-  }
-
-  25% {
-    opacity: 0.95;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateY(-260%);
-  }
-}
-
-@keyframes tick-down {
-  0% {
-    opacity: 0;
-    transform: translateY(0);
-  }
-
-  25% {
-    opacity: 0.95;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateY(260%);
-  }
-}
-
-/* Resolved: what the trade did to each unit's size. */
-
-.floor[data-phase="resolved"] .token .verdict {
-  position: absolute;
-  top: 2%;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  display: block;
-  width: max-content;
-  margin: 0 auto;
-  padding: 0.05em 0.5em;
-  border-radius: 99px;
+  border-radius: 3px;
   background: rgba(6, 9, 18, 0.92);
-  font-family: var(--mono);
-  font-size: 1.3em;
-  font-weight: 700;
-  white-space: nowrap;
-  animation: pop 0.35s ease-out both;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.26);
 }
 
-/* The label takes the place of the chart, over the size bar and clear of a winner's jump. */
-.floor[data-phase="resolved"] .token[data-result="up"] .verdict {
-  color: var(--good);
+.healthbar {
+  height: 7px;
 }
 
-.floor[data-phase="resolved"] .token[data-result="down"] .verdict,
-.floor[data-phase="resolved"] .token[data-result="out"] .verdict {
-  color: var(--bad);
+.manabar {
+  height: 3px;
 }
 
-.floor[data-phase="resolved"] .token[data-result="up"] .disc {
-  box-shadow:
-    0 0 0 2px var(--good),
-    0 0 0 4px rgba(4, 7, 15, 0.7),
-    0 0 22px var(--good);
-  transform: scale(1.12);
+.healthbar-fill,
+.manabar-fill {
+  display: block;
+  width: calc(var(--share, 1) * 100%);
+  height: 100%;
 }
 
-.floor[data-phase="resolved"] .token[data-result="down"] .disc {
-  box-shadow:
-    0 0 0 2px var(--bad),
-    0 0 0 4px rgba(4, 7, 15, 0.7),
-    0 0 16px rgba(255, 100, 112, 0.7);
-  transform: scale(0.88);
+.healthbar-fill {
+  background: linear-gradient(180deg, #8dffd0, var(--good));
+  transition: width 0.16s ease-out;
 }
 
-.floor[data-phase="resolved"] .token[data-result="out"] .disc {
-  filter: grayscale(1) brightness(0.55);
-  transform: rotate(78deg) scale(0.8) translateX(18%);
+.token[data-side="theirs"] .healthbar-fill {
+  background: linear-gradient(180deg, #ffb4bc, var(--bad));
 }
 
-/* A good trade: the figure turns back to the camera, jumps and spins, then again. */
-
-.floor[data-phase="resolved"] .token[data-result="up"] .stand {
-  filter: drop-shadow(0 0 7px var(--good));
+.manabar-fill {
+  background: #6fb1ff;
 }
 
-.floor[data-phase="resolved"] .token[data-result="up"] .has-clips {
-  background-image: var(--spin);
-  background-size: 1200% 100%;
-  animation: spin-jump 1.25s linear calc(var(--beat, 0) * 0.2s) infinite backwards;
+/* A fighter shows its back when its enemy is further up the floor and its face when the enemy
+   is nearer, and turns to the side the enemy is on. It runs fast while it moves and bounces on
+   the spot while it trades blows. */
+
+.floor[data-phase="battle"] .token[data-face="away"] .has-clips {
+  background-image: var(--back);
 }
 
-.floor[data-phase="resolved"] .token[data-result="up"] .figure:not(.has-clips) {
+.floor[data-phase="battle"] .token[data-face="toward"] .has-clips {
+  background-image: var(--charge);
+}
+
+.floor[data-phase="battle"] .token .has-clips {
+  animation-duration: 0.9s;
+}
+
+.floor[data-phase="battle"] .token[data-move="run"] .has-clips {
+  animation-duration: 0.5s;
+}
+
+.floor[data-phase="battle"] .token .figure {
+  transition: transform 0.14s ease;
+}
+
+.floor[data-phase="battle"] .token[data-turn="left"] .figure {
+  transform: scaleX(-1);
+}
+
+/* A figure whose clips are still being drawn, and a flat portrait, hop while they move. */
+
+.floor[data-phase="battle"] .token[data-move="run"] .figure:not(.has-clips) {
   animation:
     frames 1.6s steps(8, jump-none) var(--phase, 0s) infinite,
-    hop 0.5s ease-out 2;
+    hop 0.26s ease-out infinite;
 }
 
-/* The twelve frames of the jump take the first part of the loop; the figure then stands. */
-@keyframes spin-jump {
-  0% {
-    background-position: 0% 0;
-    animation-timing-function: steps(12, jump-none);
-  }
-
-  60% {
-    background-position: 100% 0;
-    animation-timing-function: step-end;
-  }
-
-  60.01%,
-  100% {
-    background-position: 0% 0;
-  }
+.floor[data-phase="battle"] .token[data-move="run"] .disc {
+  animation: hop 0.26s ease-out infinite;
 }
 
-/* A bad trade: the figure slumps on its base, smaller and paler, and sways slowly. */
+/* A unit that has fallen: knocked over, grey, its bars gone. It turns about its middle and
+   sinks, so it comes to lie across its own base. */
 
-.floor[data-phase="resolved"] .token[data-result="down"] .stand {
-  filter: saturate(0.55) brightness(0.85);
-}
-
-.floor[data-phase="resolved"] .token[data-result="down"] .figure {
-  transform: rotate(-6deg) scale(0.88, 0.8);
-  animation-duration: 2.4s;
-}
-
-/* A wipe-out: the figure is knocked over, bounces once and fades to a grey ghost. It turns
-   about its middle and sinks, so it comes to lie across its own base. */
-
-.floor[data-phase="resolved"] .token[data-result="out"] .figure {
+.floor[data-phase] .token[data-down] .figure {
   transform-origin: 50% 64%;
   animation: topple 0.75s linear forwards;
+}
+
+.floor[data-phase] .token[data-down] .disc {
+  filter: grayscale(1) brightness(0.55);
+  transform: rotate(78deg) scale(0.8) translateX(18%);
+  transition:
+    transform 0.4s ease-in,
+    filter 0.4s ease-in;
+}
+
+.floor[data-phase] .token[data-down] .bars {
+  visibility: hidden;
+}
+
+.floor[data-phase] .token[data-down] .plate {
+  opacity: 0.5;
 }
 
 @keyframes topple {
@@ -1996,12 +1691,378 @@ button.hex:focus-visible {
   }
 }
 
+/* Whoever is left standing turns to the camera, jumps and spins, again and again. */
+
+.floor[data-phase] .token[data-cheer] .stand {
+  filter: drop-shadow(0 0 7px var(--good));
+}
+
+.floor[data-phase] .token[data-cheer] .has-clips {
+  background-image: var(--spin);
+  background-size: 1200% 100%;
+  transform: none;
+  animation: spin-jump 1.25s linear infinite backwards;
+}
+
+.floor[data-phase] .token[data-cheer] .figure:not(.has-clips) {
+  animation:
+    frames 1.6s steps(8, jump-none) var(--phase, 0s) infinite,
+    hop 0.5s ease-out infinite;
+}
+
+.floor[data-phase] .token[data-cheer] .disc {
+  animation: hop 0.5s ease-out infinite;
+}
+
+/* The twelve frames of the jump take the first part of the loop; the figure then stands. */
+@keyframes spin-jump {
+  0% {
+    background-position: 0% 0;
+    animation-timing-function: steps(12, jump-none);
+  }
+
+  60% {
+    background-position: 100% 0;
+    animation-timing-function: step-end;
+  }
+
+  60.01%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+/* The small things of a fight: shots, the flash of a hit, numbers, the names of the signature moves. Each
+   stands at --fx, --fy on the floor, in widths of a cell from the first cell of the far board,
+   faces the camera like a token and is lifted to the height of a chest by --lift. */
+
+.fx {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.fx-item {
+  --lift: 0.5;
+  --at: translate(calc(var(--hex) * (var(--fx, 0) - 3.425)), calc(var(--hex) * (var(--fy, 0) + 0.693)));
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: var(--at) rotateX(calc(var(--tilt) * -1)) translate(-50%, calc(-50% - var(--hex) * var(--lift)))
+    translateZ(14px);
+  pointer-events: none;
+}
+
+.shot {
+  width: calc(var(--hex) * 0.2);
+  height: calc(var(--hex) * 0.2);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0 30%, #7fd4ff 58%, transparent 72%);
+  box-shadow: 0 0 10px 2px rgba(111, 177, 255, 0.9);
+}
+
+.shot[data-side="theirs"] {
+  background: radial-gradient(circle, #ffffff 0 30%, #ff9a7a 58%, transparent 72%);
+  box-shadow: 0 0 10px 2px rgba(255, 120, 100, 0.9);
+}
+
+.shot.heavy {
+  width: calc(var(--hex) * 0.32);
+  height: calc(var(--hex) * 0.32);
+  box-shadow: 0 0 16px 5px rgba(255, 214, 110, 0.95);
+}
+
+.impact {
+  --lift: 0.55;
+  width: calc(var(--hex) * 0.5);
+  height: calc(var(--hex) * 0.5);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0 12%, rgba(255, 236, 170, 0.9) 26%, transparent 60%);
+  animation: burst 0.24s ease-out forwards;
+}
+
+.impact.heavy {
+  width: calc(var(--hex) * 0.85);
+  height: calc(var(--hex) * 0.85);
+  animation-duration: 0.32s;
+}
+
+@keyframes burst {
+  from {
+    opacity: 1;
+    scale: 0.3;
+  }
+
+  to {
+    opacity: 0;
+    scale: 1.25;
+  }
+}
+
+/* The sweep of a blow struck by hand: a bright arc across the one who is hit. */
+.slash {
+  --lift: 0.5;
+  width: calc(var(--hex) * 0.7);
+  height: calc(var(--hex) * 0.7);
+  border: calc(var(--hex) * 0.07) solid transparent;
+  border-top-color: #ffffff;
+  border-right-color: rgba(255, 255, 255, 0.65);
+  border-radius: 50%;
+  filter: drop-shadow(0 0 5px rgba(255, 240, 190, 0.95));
+  animation: sweep-right 0.2s ease-out forwards;
+}
+
+.slash[data-turn="left"] {
+  animation-name: sweep-left;
+}
+
+@keyframes sweep-right {
+  from {
+    opacity: 1;
+    rotate: -70deg;
+    scale: 0.6;
+  }
+
+  to {
+    opacity: 0;
+    rotate: 60deg;
+    scale: 1.15;
+  }
+}
+
+@keyframes sweep-left {
+  from {
+    opacity: 1;
+    rotate: 70deg;
+    scale: 0.6 -0.6;
+  }
+
+  to {
+    opacity: 0;
+    rotate: -60deg;
+    scale: 1.15 -1.15;
+  }
+}
+
+.damage {
+  --lift: 0.95;
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: calc(var(--hex) * 0.2);
+  font-weight: 800;
+  white-space: nowrap;
+  text-shadow:
+    0 1px 0 #000000,
+    0 0 6px rgba(0, 0, 0, 0.9);
+  animation: float-up 0.75s ease-out forwards;
+}
+
+.damage.heavy {
+  color: var(--accent);
+  font-size: calc(var(--hex) * 0.3);
+}
+
+@keyframes float-up {
+  from {
+    opacity: 0;
+    translate: 0 20%;
+  }
+
+  15% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+    translate: 0 -160%;
+  }
+}
+
+.callout {
+  --lift: 1.45;
+  padding: 0.1em 0.6em;
+  border: 1px solid var(--accent);
+  border-radius: 99px;
+  background: rgba(6, 9, 18, 0.92);
+  color: var(--accent);
+  font-size: calc(var(--hex) * 0.15);
+  font-weight: 700;
+  white-space: nowrap;
+  animation: call-out 1s ease-out forwards;
+}
+
+.callout[data-side="theirs"] {
+  border-color: #ff9a7a;
+  color: #ffb49c;
+}
+
+@keyframes call-out {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+
+  15% {
+    opacity: 1;
+    scale: 1.08;
+  }
+
+  25% {
+    scale: 1;
+  }
+
+  80% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+    translate: 0 -40%;
+  }
+}
+
+/* The ring of a signature move lies on the floor and spreads from the unit's feet. */
+.fx-item.ring {
+  width: calc(var(--hex) * 1.5);
+  height: calc(var(--hex) * 1.5);
+  border: 3px solid rgba(255, 201, 77, 0.9);
+  border-radius: 50%;
+  box-shadow:
+    0 0 14px rgba(255, 201, 77, 0.8),
+    inset 0 0 14px rgba(255, 201, 77, 0.5);
+  transform: var(--at) translate(-50%, -50%) translateZ(3px);
+  animation: ripple 0.6s ease-out forwards;
+}
+
+.fx-item.ring[data-side="theirs"] {
+  border-color: rgba(255, 140, 120, 0.9);
+  box-shadow:
+    0 0 14px rgba(255, 120, 100, 0.8),
+    inset 0 0 14px rgba(255, 120, 100, 0.5);
+}
+
+/* Where a unit falls: a pale ring of dust. */
+.fx-item.ring.fallen {
+  border-color: rgba(220, 230, 255, 0.75);
+  box-shadow: 0 0 16px rgba(200, 215, 255, 0.6);
+  animation-duration: 0.45s;
+}
+
+@keyframes ripple {
+  from {
+    opacity: 0.95;
+    scale: 0.2;
+  }
+
+  to {
+    opacity: 0;
+    scale: 1.15;
+  }
+}
+
+/* Resolved: the fight is over, and every unit shows what its own trade did to its size. */
+
+.floor[data-phase="resolved"] .token .bars {
+  visibility: hidden;
+}
+
+.floor[data-phase="resolved"] .token .verdict {
+  position: absolute;
+  top: 2%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: block;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0.05em 0.5em;
+  border-radius: 99px;
+  background: rgba(6, 9, 18, 0.92);
+  font-family: var(--mono);
+  font-size: 1.3em;
+  font-weight: 700;
+  white-space: nowrap;
+  animation: pop 0.35s ease-out both;
+}
+
+.floor[data-phase="resolved"] .token[data-result="up"] .verdict {
+  color: var(--good);
+}
+
+.floor[data-phase="resolved"] .token[data-result="down"] .verdict,
+.floor[data-phase="resolved"] .token[data-result="out"] .verdict {
+  color: var(--bad);
+}
+
+/* The two bars over the floor: how much health each side has left. */
+
+.scene-score {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 760px);
+  font-size: 0.9rem;
+}
+
+.team {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.team.theirs {
+  flex-direction: row-reverse;
+}
+
+.team-name {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-bar {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.team.theirs .team-bar {
+  justify-content: flex-start;
+}
+
+.team-fill {
+  width: calc(var(--share, 1) * 100%);
+  background: linear-gradient(180deg, #8dffd0, var(--good));
+  transition: width 0.2s ease-out;
+}
+
+.team.theirs .team-fill {
+  background: linear-gradient(180deg, #ffb4bc, var(--bad));
+}
+
+.versus {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
 .theatre {
   position: fixed;
   inset: 0;
   z-index: 15;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   justify-items: center;
   gap: 8px;
   padding: 14px 16px;
@@ -2048,7 +2109,7 @@ button.hex:focus-visible {
   opacity: 0;
 }
 
-.scene-floor[data-phase="trading"] .slab::after {
+.scene-floor[data-phase="battle"] .slab::after {
   animation: clash 0.8s ease-in-out infinite;
 }
 
@@ -2779,12 +2840,6 @@ button.fight {
   display: block;
   width: 120px;
   height: 32px;
-}
-
-.trace .spark {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 64 / 26;
 }
 
 .spark-line {

@@ -4,8 +4,6 @@ import { describe, it } from "node:test";
 import {
   arrivalOf,
   bannerOf,
-  barOf,
-  beatOf,
   cellEffect,
   factorOf,
   fightText,
@@ -180,35 +178,7 @@ describe("the fight scene", () => {
   });
 });
 
-describe("the size bar", () => {
-  it("is half full for a trade that changed nothing, and follows the factor", () => {
-    assert.equal(barOf({ size: 100, score: 100 }), 1);
-    assert.equal(barOf({ size: 100, score: 150 }), 1.5);
-    assert.equal(barOf({ size: 90, score: 45 }), 0.5);
-  });
-
-  it("is never emptier than empty or fuller than full", () => {
-    assert.equal(barOf({ size: 100, score: 0 }), 0);
-    assert.equal(barOf({ size: 100, score: -20 }), 0);
-    assert.equal(barOf({ size: 100, score: 260 }), 2);
-    assert.equal(barOf({ size: 0, score: 0 }), 0);
-  });
-});
-
 describe("the motion", () => {
-  it("gives neighbouring cells different beats", () => {
-    for (let row = 0; row < BOARD.rows; row += 1) {
-      for (let col = 0; col < BOARD.cols; col += 1) {
-        const beat = beatOf([row, col]);
-        assert.ok(beat >= 0 && beat < 1, `beat ${beat}`);
-        assert.notEqual(beat, beatOf([row, col + 1]));
-        assert.notEqual(beat, beatOf([row + 1, col]));
-      }
-    }
-    assert.equal(beatOf([0, 0]), 0);
-    assert.equal(beatOf(null), 0);
-  });
-
   const seat = (board, bench) => ({
     board: board.map(([row, col], index) => ({ index, cell: [row, col] })),
     bench: Array.from({ length: bench }, (_, index) => ({ index: board.length + index, cell: null })),

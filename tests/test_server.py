@@ -385,6 +385,7 @@ def test_static_files(api: Api) -> None:
         "/pieces.js": script,
         "/scene.js": script,
         "/arena.js": script,
+        "/battle.js": script,
         "/style.css": "text/css; charset=utf-8",
         "/favicon.svg": "image/svg+xml",
     }
