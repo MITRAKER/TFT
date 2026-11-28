@@ -16,6 +16,8 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from tft.name import GAME_NAME
+
 COST_TIERS = (1, 2, 3, 4, 5)
 ODDS_TOTAL = 100
 INT_KEY_TABLES = (
@@ -82,12 +84,17 @@ class Rules:
     boss_round: int = 7
     augment_rounds: tuple[tuple[int, int], ...] = ((2, 1), (3, 2), (4, 2))
     augment_choices: int = 3
-    market_power_per_stage: int = 6
-    market_boss_factor_tenths: int = 15
-    market_survivors: int = 2
     econ_reserve: int = 10
+    board_rows: int = 4
+    board_cols: int = 7
+    row_size_percent: tuple[int, ...] = (90, 95, 100, 110)
+    row_shield_percent: tuple[int, ...] = (40, 20, 0, 0)
+    cover_shield_percent: int = 25
+    exposed_penalty_percent: int = 50
     slice_bars: int = 10
-    risk_penalty_tenths: int = 5
+    risk_penalty_tenths: int = 3
+    result_weight: int = 10
+    result_cap_percent: int = 200
     preview_samples: int = 200
     components_per_pve_round: int = 1
     max_items_per_unit: int = 3
@@ -97,9 +104,12 @@ class Rules:
     target_percent: int = 4
     reversion_threshold_tenths: int = 15
     hedge_floor_percent: int = 2
-    hedge_premium_tenths: int = 5
-    whale_leverage_tenths: int = 20
+    hedge_premium_tenths: int = 10
+    whale_leverage_tenths: int = 15
     arb_capture_percent: int = 20
+    arb_quiet_move_tenths: int = 20
+    arb_adverse_percent: int = 50
+    scalp_threshold_tenths: int = 15
     pool_sizes: dict[int, int] = field(default_factory=_default_pool_sizes)
     shop_odds: dict[int, tuple[int, ...]] = field(default_factory=_default_shop_odds)
     xp_to_next_level: dict[int, int] = field(default_factory=_default_xp)
@@ -114,7 +124,9 @@ class Rules:
                 or a shop odds row does not add up to 100.
         """
         self._check_counts()
+        self._check_rounds()
         self._check_tables()
+        self._check_board()
 
     def _check_counts(self) -> None:
         """Validate the scalar settings."""
@@ -136,8 +148,8 @@ class Rules:
                 "rounds_per_stage",
                 "stages",
                 "augment_choices",
-                "market_power_per_stage",
-                "market_boss_factor_tenths",
+                "board_rows",
+                "board_cols",
                 "slice_bars",
                 "preview_samples",
                 "max_items_per_unit",
@@ -145,6 +157,7 @@ class Rules:
                 "stop_percent",
                 "target_percent",
                 "whale_leverage_tenths",
+                "result_cap_percent",
             )
         }
         bad = sorted(name for name, value in positive.items() if value <= 0)
@@ -153,18 +166,27 @@ class Rules:
             raise ValueError(msg)
         signed = (
             "risk_penalty_tenths",
+            "result_weight",
             "components_per_pve_round",
             "trade_cost_bps",
             "reversion_threshold_tenths",
             "hedge_floor_percent",
             "hedge_premium_tenths",
             "arb_capture_percent",
+            "arb_quiet_move_tenths",
+            "arb_adverse_percent",
+            "scalp_threshold_tenths",
             "econ_reserve",
+            "cover_shield_percent",
+            "exposed_penalty_percent",
         )
         negative = sorted(name for name in signed if getattr(self, name) < 0)
         if negative:
             msg = f"these rules must not be negative: {', '.join(negative)}"
             raise ValueError(msg)
+
+    def _check_rounds(self) -> None:
+        """Validate the settings that depend on one another."""
         if self.slice_bars < 2:  # noqa: PLR2004
             msg = "slice_bars must be at least 2"
             raise ValueError(msg)
@@ -198,6 +220,19 @@ class Rules:
             msg = "stage_base_damage needs at least stage 1"
             raise ValueError(msg)
 
+    def _check_board(self) -> None:
+        """Validate the board grid and its per-row settings."""
+        rows = (len(self.row_size_percent), len(self.row_shield_percent))
+        if rows != (self.board_rows, self.board_rows):
+            msg = "row_size_percent and row_shield_percent need one entry per board row"
+            raise ValueError(msg)
+        if min(self.row_size_percent) <= 0:
+            msg = "row_size_percent entries must be positive"
+            raise ValueError(msg)
+        if self.board_rows * self.board_cols < self.max_level:
+            msg = "the board needs at least max_level cells"
+            raise ValueError(msg)
+
     @property
     def max_rounds(self) -> int:
         """Return the number of rounds in a full match."""
@@ -223,8 +258,8 @@ class Rules:
                 values[key] = {
                     int(k): tuple(v) if isinstance(v, list) else v for k, v in raw.items()
                 }
-            elif key == "augment_rounds" and isinstance(raw, list):
-                values[key] = tuple(tuple(pair) for pair in raw)
+            elif isinstance(raw, list):
+                values[key] = tuple(tuple(item) if isinstance(item, list) else item for item in raw)
             else:
                 values[key] = raw
         return cls(**values)
@@ -244,7 +279,7 @@ class Rules:
                 tables += render_table(setting.name, value)
             else:
                 scalars.append(f"{setting.name} = {toml_value(value)}")
-        header = "# Ticker Fight Tactics rule set: every number the engine uses."
+        header = f"# {GAME_NAME} rule set: every number the engine uses."
         return "\n".join([header, *scalars, *tables]) + "\n"
 
     def digest(self) -> str:

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Team Fight Tackticktics</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <h1 id="brand" class="brand">Team Fight Tackticktics</h1>
+      <p id="round-info" class="round-info" aria-live="polite"></p>
+      <button id="nav-lobby" class="ghost" type="button">Lobby</button>
+    </header>
+
+    <main>
+      <section id="lobby" class="screen lobby" aria-labelledby="lobby-title">
+        <div id="hero" class="hero">
+          <div class="hero-copy">
+            <h2 id="lobby-title">Draft traders. Survive the market.</h2>
+            <p>
+              An auto-battler where every unit is a trading strategy and every fight is decided on a
+              slice of real market history. Buy units, combine three into a stronger one, size down
+              what swings, slam items, and read the lesson each round teaches.
+            </p>
+          </div>
+          <div id="showcase" class="showcase" aria-label="The roster"></div>
+        </div>
+
+        <form id="new-match" class="panel new-match">
+          <h2>New match</h2>
+          <label>
+            Bots
+            <input id="opt-bots" type="range" min="1" max="7" value="7">
+            <output id="opt-bots-out" for="opt-bots">7</output>
+          </label>
+          <label>
+            Seed
+            <input id="opt-seed" type="number" min="0" max="2147483647" placeholder="random" inputmode="numeric">
+          </label>
+          <label class="check">
+            <input id="opt-market" type="checkbox" checked>
+            Decide fights on real market history
+          </label>
+          <div class="row">
+            <button id="btn-play" class="primary" type="submit">Play</button>
+            <button id="btn-watch" type="button">Watch bots play</button>
+          </div>
+        </form>
+
+        <div class="panel">
+          <h2>Matches on this server</h2>
+          <ul id="match-list" class="match-list"></ul>
+          <p id="match-empty" class="muted">No matches yet. Start one above.</p>
+        </div>
+
+        <details class="panel how">
+          <summary>How to play</summary>
+          <ul>
+            <li><strong>Shop.</strong> Five units each round. Three copies of a unit merge into a stronger one.</li>
+            <li><strong>Economy.</strong> Banked gold pays interest: 1 per 10 gold, up to 5 a round. Streaks pay extra.</li>
+            <li><strong>Board.</strong> One unit per level. The front rows trade smaller and forgive part of a
+              drawdown: the place for what swings. The back rows trade bigger, and a back unit with nobody in
+              front of it in its column pays extra for every drawdown.</li>
+            <li><strong>Tickers.</strong> A unit's column picks which symbol of its market it trades. Spread to diversify.</li>
+            <li><strong>Items.</strong> Two components make an item: tighter stops, wider targets, bigger size, drawdown shields.</li>
+            <li><strong>Fight.</strong> Every unit trades its class's strategy on the round's slice. A good trade grows
+              the unit's size, a bad one shrinks it, a disaster wipes it out. The bigger board wins.</li>
+          </ul>
+        </details>
+      </section>
+
+      <section id="game" class="screen game" hidden aria-label="Match">
+        <div class="stagebar">
+          <ol id="stage" class="stage-track" aria-label="Rounds of this stage"></ol>
+        </div>
+
+        <div class="table">
+          <aside class="rail rail-left" aria-label="Traits, items and augments">
+            <h2>Traits</h2>
+            <ul id="traits" class="traits"></ul>
+            <h2>Items</h2>
+            <div id="components" class="shelf" aria-label="Components"></div>
+            <div id="items" class="shelf" aria-label="Completed items"></div>
+            <p id="items-empty" class="muted">Components drop on Market rounds and carousels.</p>
+            <h2>Augments</h2>
+            <ul id="augments" class="augments"></ul>
+          </aside>
+
+          <div class="arena">
+            <div id="tape" class="tape" aria-label="How each market moved last round"></div>
+            <div id="floor" class="floor">
+              <div class="boards">
+                <div id="board" class="board mine" aria-label="Your board, front row first"></div>
+              </div>
+            </div>
+            <div class="arena-foot">
+              <span class="count">Board <strong id="board-count"></strong></span>
+              <span id="board-legend" class="muted legend"></span>
+            </div>
+            <div id="bench" class="bench" aria-label="Your bench"></div>
+          </div>
+
+          <aside class="rail rail-right" aria-label="Players and selection">
+            <h2>Players</h2>
+            <div id="rivals" class="scoreboard" aria-label="Other players"></div>
+            <h2>Selected</h2>
+            <div id="detail" class="detail"></div>
+          </aside>
+        </div>
+
+        <div class="shop-bar">
+          <div class="shop-side">
+            <div class="level-row">
+              <span class="level-badge">Level <strong id="level"></strong></span>
+              <span class="bar"><span id="xp-fill" class="fill xp"></span></span>
+              <span id="xp-text" class="muted"></span>
+            </div>
+            <button id="btn-xp" class="action" type="button"></button>
+            <button id="btn-reroll" class="action" type="button"></button>
+            <span id="odds" class="muted odds"></span>
+          </div>
+
+          <div class="shop-main">
+            <div class="purse">
+              <span class="purse-gold" title="Gold">
+                <span class="glyph-slot gold" data-icon="coin"></span>
+                <strong id="gold" class="value gold"></strong>
+              </span>
+              <span id="interest" class="pips" aria-hidden="true"></span>
+              <span id="income" class="muted"></span>
+              <span class="purse-streak" title="Win or loss streak">
+                <span class="glyph-slot flame" data-icon="flame"></span>
+                <strong id="streak" class="value"></strong>
+              </span>
+            </div>
+            <div id="shop" class="shop" aria-label="Shop"></div>
+          </div>
+
+          <div class="shop-side right">
+            <div class="health-row" title="Your health">
+              <span class="glyph-slot heart" data-icon="heart"></span>
+              <span class="bar"><span id="hp-fill" class="fill hp"></span></span>
+              <strong id="hp-text" class="value"></strong>
+            </div>
+            <button id="btn-preview" class="action" type="button">Preview odds</button>
+            <button id="btn-fight" class="primary fight" type="button">Fight</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="spectate" class="screen" hidden aria-label="Spectating">
+        <div class="section-head">
+          <h2 id="spectate-title">Spectating</h2>
+          <div class="row">
+            <button id="btn-step" type="button">Next round</button>
+            <button id="btn-auto" type="button" aria-pressed="false">Auto-play</button>
+            <button id="btn-refresh" type="button">Refresh</button>
+          </div>
+        </div>
+        <div id="seats" class="seats"></div>
+        <div class="panel">
+          <h2>Last round</h2>
+          <ul id="spectate-fights" class="fights"></ul>
+        </div>
+      </section>
+    </main>
+
+    <div id="theatre" class="theatre" hidden>
+      <p id="scene-caption" class="scene-caption"></p>
+      <div id="scene-score" class="scene-score" aria-hidden="true"></div>
+      <div id="scene-floor" class="floor scene-floor">
+        <div class="boards">
+          <div id="scene-enemy" class="board enemy" aria-hidden="true"></div>
+          <div id="scene-mine" class="board mine" aria-hidden="true"></div>
+          <div id="scene-fx" class="fx" aria-hidden="true"></div>
+        </div>
+        <div id="banner" class="banner" hidden></div>
+      </div>
+      <p class="scene-hint muted">Click or press Enter to skip</p>
+    </div>
+
+    <div id="overlay" class="overlay" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+        <h2 id="dialog-title"></h2>
+        <div id="dialog-body" class="dialog-body"></div>
+        <div id="dialog-actions" class="row dialog-actions"></div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <noscript>Team Fight Tackticktics needs JavaScript.</noscript>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

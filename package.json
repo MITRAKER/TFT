@@ -1,0 +1,23 @@
+{
+  "name": "tft-web-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lint, unit tests and browser tests for the client that `tft serve` serves. The game itself is the Python package.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node --test \"tests/web/*.test.js\"",
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "eslint": "10.15.0",
+    "globals": "17.14.0"
+  }
+}

@@ -1,10 +1,14 @@
 # Code standards
 
-Two layers apply to every line in this repository: general Python code
-standards, enforced by `ruff` and `mypy`, and the NASA/JPL Power of Ten rules
-for safety-critical code, enforced by `tools/jpl_check.py` together with the
-other stages. The **Standards** workflow runs both on every push and pull
+Two layers apply to every line of Python in this repository: general Python
+code standards, enforced by `ruff` and `mypy`, and the NASA/JPL Power of Ten
+rules for safety-critical code, enforced by `tools/jpl_check.py` together with
+the other stages. The **Standards** workflow runs both on every push and pull
 request; `pre-commit` runs them before every commit.
+
+The browser client in `src/tft/web` is JavaScript. Its standards are in
+[The browser client](#the-browser-client) below; the `web` job of the **CI**
+workflow enforces them.
 
 ## General code standards
 
@@ -40,7 +44,7 @@ silence a single line with `# noqa: JPL04` (one rule) or `# noqa: JPL` (all).
 | 4 | No function longer than what fits on one sheet of paper, about 60 lines. | **JPL04** rejects any function longer than 60 lines, docstring excluded. `ruff` additionally caps a function at 50 statements. |
 | 5 | Assertion density of at least two assertions per function, checking conditions that should never happen. | **JPL05** requires every function with 10 or more statements to contain at least one `assert` or validation `raise` (both thresholds are configurable). Product code validates inputs with explicit exceptions because `assert` is stripped under `python -O`; `assert` is reserved for internal invariants and tests. `mypy --strict` removes a large class of impossible states before the code runs. |
 | 6 | Declare data objects at the smallest possible scope. | **JPL06** rejects `global` and `nonlocal`. `ruff` rejects mutable default arguments (`B006`) and the `global` statement (`PLW0603`); module constants are `UPPER_CASE` and treated as read-only. |
-| 7 | Check the return value of every non-void function and the validity of every parameter. | **JPL07** warns when a call's result is discarded; calls to functions annotated `-> None` in the same file and to conventional effect-only methods are exempt, and a deliberate case is silenced with `# noqa: JPL07`. `ruff` `ANN` plus `mypy --strict` make every parameter and return type explicit and checked; JPL05 drives the input validation. |
+| 7 | Check the return value of every non-void function and the validity of every parameter. | **JPL07** warns when a call's result is discarded; calls to functions annotated `-> None` anywhere in the checked files and to conventional effect-only methods are exempt, and a deliberate case is silenced with `# noqa: JPL07`. `ruff` `ANN` plus `mypy --strict` make every parameter and return type explicit and checked; JPL05 drives the input validation. |
 | 8 | Limit the preprocessor to header inclusion and simple macros. | Python has no preprocessor. The analogue is code created or executed at run time: **JPL08** rejects `eval`, `exec`, `compile`, `__import__` and `from module import *`; `ruff` `S102`/`S307` flag the same as security findings. |
 | 9 | Restrict pointer use to one level of dereferencing; no function pointers. | Python has no raw pointers. The spirit of the rule, keeping indirection explicit and readable, is served by `mypy --strict` (no untyped or `Any`-typed calls), by `ruff` `A` (no shadowed builtins) and by review of any `ctypes` or reflection use. |
 | 10 | Compile with all warnings enabled from day one; use several static analysers daily; pass with zero warnings. | The Standards workflow runs `ruff` with the full rule set and `mypy --strict` with zero tolerance, `pytest` turns every warning into an error, CodeQL analyses the code and the workflows on every change and weekly, `pip-audit` and dependency review watch the dependencies, and OpenSSF Scorecard reviews the repository's own posture. |
@@ -67,6 +71,35 @@ python tools/jpl_check.py --root .                 # as CI runs it
 python tools/jpl_check.py --root . --strict        # warnings fail too
 python tools/jpl_check.py --root . --paths src/tft/economy.py
 python tools/jpl_check.py --list-rules
+```
+
+## The browser client
+
+The client in `src/tft/web` is plain JavaScript: ES modules, no framework, no
+dependency at run time and no build step. `ruff`, `mypy` and
+`tools/jpl_check.py` do not read it. Its standards follow the same ideas
+(short functions, simple control flow, no code created at run time) and are
+enforced by the tools below. They are development tools only, pinned in
+`package.json` and `package-lock.json`, and need Node 22 or newer.
+
+| Standard | Rule | Enforced by |
+| --- | --- | --- |
+| Lint | ESLint's recommended rules; braces on every block (`curly`), `===` (`eqeqeq`), `const` and `let` only (`no-var`, `prefer-const`) | `npx eslint .` (`eslint.config.js`) |
+| Complexity | cyclomatic complexity 12 or less, blocks nested at most 3 deep, functions of at most 70 lines without blank lines and comments (the length limit is off for the tests and the configuration files) | ESLint (`complexity`, `max-depth`, `max-lines-per-function`) |
+| No dynamic code | no `eval`, no implied `eval`, no `new Function` | ESLint (`no-eval`, `no-implied-eval`, `no-new-func`), CodeQL |
+| Markup | elements are built with DOM calls and text is set as text; no `innerHTML` | review; the server's content security policy only allows scripts and styles from the server itself |
+| Unit tests | the code without a DOM (`logic.js`, `battle.js`, `art.js`, `models.js`, the skyline of `arena.js`, the timing of `figures.js`, and the meshes, rotations, poses and shadows of `studio.js`) is tested on Node's test runner | `npm test` (`tests/web/*.test.js`) |
+| Browser tests | the game is played in headless Chromium against `python -m tft serve`: a whole match and its replay, the round result, the art and the figures, the arena, the fight scene, spectating and the narrow layout | `npx playwright test` (`tests/web/e2e`) |
+
+Two limits: the client's tests have no coverage threshold, and `pre-commit`
+does not run the client's checks. They run in the `web` job of the CI
+workflow, which `CI passed` requires.
+
+```bash
+npm ci
+npm run lint       # npx eslint .
+npm test           # node --test "tests/web/*.test.js"
+npm run test:e2e   # npx playwright test; run it with the virtual environment active
 ```
 
 ## References

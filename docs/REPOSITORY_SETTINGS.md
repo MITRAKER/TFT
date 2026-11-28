@@ -27,7 +27,7 @@ repository, and whenever GitHub adds a new protection.
 | Dependabot alerts | On | Alerts for vulnerable dependencies |
 | Dependabot security updates | On | Automatic pull requests that fix alerts |
 | Grouped security updates | On | One pull request per group instead of one per package |
-| Dependabot version updates | On (configured by `.github/dependabot.yml`) | Weekly tooling and Actions updates |
+| Dependabot version updates | On (configured by `.github/dependabot.yml`) | Weekly updates of the Actions, the Python tooling and the browser client's npm tooling |
 | Code scanning, CodeQL | **Advanced** setup through `.github/workflows/codeql.yml`; leave *Default setup* off | Default and advanced setups conflict; the workflow version is reviewable and pinned |
 | Secret scanning | On | Detect committed credentials |
 | Push protection | On | Block pushes that contain credentials |
@@ -40,7 +40,7 @@ repository, and whenever GitHub adds a new protection.
 
 - Restrict deletions, block force pushes.
 - Require a pull request before merging; require conversation resolution.
-- Require status checks to pass, strict (branch must be up to date): `CI passed`, `Standards passed`, `Analyze (python)`, `Analyze (actions)`.
+- Require status checks to pass, strict (branch must be up to date): `CI passed`, `Standards passed`, `Analyze (python)`, `Analyze (actions)`, `Analyze (javascript-typescript)`. `CI passed` covers the Python tests, the build and the `web` job (the browser client's lint, unit tests and browser tests); `Analyze (javascript-typescript)` is the CodeQL analysis of the repository's JavaScript.
 - Bypass: repository administrators, so the owner can still push an urgent fix directly. Remove the bypass once more than one person maintains the project.
 
 **Protect release tags** (tag ruleset, target: `refs/tags/v*`)

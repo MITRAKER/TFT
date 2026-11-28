@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import runpy
 import sys
+import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -13,17 +14,23 @@ import pytest
 from tft import cli
 from tft.cli import (
     Console,
+    cell_label,
     handle_command,
     main,
     parse_command,
     render_report,
     render_scout,
     render_status,
+    render_summary,
     standard_console,
 )
-from tft.environment import AUGMENTS, CombatResult, Game, Player, RoundId, RoundReport
+from tft.environment import AUGMENTS, CombatResult, Game, Player, RoundId, RoundReport, Unit
+from tft.lessons import RoundSummary
+from tft.name import GAME_NAME
 from tft.replay import Replay
+from tft.roster import champion
 from tft.rules import Rules
+from tft.server import GameServer
 
 
 class FakeConsole:
@@ -62,7 +69,8 @@ def test_parse_command() -> None:
     assert parse_command("B 2") == ("b", (2,))
     assert parse_command("o") == ("o", ())
     assert parse_command("i 0 1") == ("i", (0, 1))
-    for bad in ("b x", "b 1 2 3"):
+    assert parse_command("m 0 3 2") == ("m", (0, 3, 2))
+    for bad in ("b x", "b 1 2 3 4"):
         with pytest.raises(ValueError, match="whole number"):
             parse_command(bad)
 
@@ -70,7 +78,23 @@ def test_parse_command() -> None:
 def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     rules_path = short_rules(tmp_path)
     replay_path = tmp_path / "match.json"
-    script = ["h", "o", "b 0", "f 0", "zz", "b 99", "b x", "p", "", "x", "c 0 1", "i 0 0", "", "e"]
+    script = [
+        "h",
+        "o",
+        "b 0",
+        "f 0",
+        "m 0 0 0",
+        "zz",
+        "b 99",
+        "b x",
+        "p",
+        "",
+        "x",
+        "c 0 1",
+        "i 0 0",
+        "",
+        "e",
+    ]
     fake = FakeConsole(script)
     status = main(
         [
@@ -91,6 +115,9 @@ def test_full_match_is_played_saved_and_verified(tmp_path: Path) -> None:
     assert "unknown command 'zz'" in fake.text
     assert "cannot: shop slot 99" in fake.text
     assert "cannot: a command takes" in fake.text
+    assert "to row 0, column 0" in fake.text
+    assert "@0,0" in fake.text
+    assert "You " in fake.text
     assert "Odds of winning" in fake.text
     assert "Market slice:" in fake.text
     assert "crafted " in fake.text
@@ -157,7 +184,7 @@ def test_sim_prints_placements() -> None:
 def test_rules_dump_and_check(tmp_path: Path) -> None:
     fake = FakeConsole([])
     assert main(["rules"], fake.console) == 0
-    assert fake.text.startswith("# Ticker Fight Tactics rule set")
+    assert fake.text.startswith(f"# {GAME_NAME} rule set")
     path = tmp_path / "rules.toml"
     path.write_text(fake.text + "\n", encoding="utf-8")
     check = FakeConsole([])
@@ -335,3 +362,77 @@ def test_replay_with_an_unknown_pack_name_needs_the_file(tmp_path: Path) -> None
     missing = FakeConsole([])
     assert main(["replay", str(replay_path), "--rules", str(rules_path)], missing.console) == 2
     assert "pass it with --pack" in missing.text
+
+
+def test_render_summary_and_cell_labels() -> None:
+    def summary(
+        outcome: str, opponent: str | None, damage: int, lessons: tuple[str, ...]
+    ) -> RoundSummary:
+        return RoundSummary("2-1", None, opponent, outcome, 0.0, 0.0, damage, (), (), lessons)
+
+    assert render_summary(summary("none", None, 0, ())) == "You did not fight this round."
+    assert render_summary(summary("won", "ana", 0, ())) == "You won against ana."
+    assert render_summary(summary("draw", "bo", 0, ())) == "You drew against bo."
+    lost = render_summary(summary("lost", "The Market", 7, ("Slam items.", "Scout.")))
+    assert lost.splitlines() == [
+        "You lost against The Market, -7 hp.",
+        "Lesson: Slam items.",
+        "Lesson: Scout.",
+    ]
+    assert cell_label(Unit(champion("Pip Squeak"))) == ""
+    assert cell_label(Unit(champion("Pip Squeak"), position=(3, 2))) == "@3,2"
+
+
+def test_serve_runs_until_interrupted(monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[str] = []
+
+    def interrupted(_self: GameServer, poll_interval: float = 0.5) -> None:
+        del poll_interval
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(GameServer, "serve_forever", interrupted)
+
+    def remember(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(webbrowser, "open", remember)
+    fake = FakeConsole([])
+    assert main(["serve", "--port", "0", "--open"], fake.console) == 0
+    assert "is serving at http://127.0.0.1:" in fake.out[0]
+    assert fake.out[-1] == "Stopped."
+    assert len(opened) == 1
+    assert opened[0].startswith("http://127.0.0.1:")
+    quiet = FakeConsole([])
+    assert main(["serve", "--port", "0"], quiet.console) == 0
+    assert len(opened) == 1
+
+
+def test_serve_passes_on_the_names_it_may_be_reached_by(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[frozenset[str]] = []
+
+    def interrupted(server: GameServer) -> None:
+        seen.append(server.allowed)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(GameServer, "serve_forever", interrupted)
+    fake = FakeConsole([])
+    arguments = ["serve", "--port", "0", "--allow-host", "SuperCom", "--allow-host", "game.example"]
+    assert main(arguments, fake.console) == 0
+    assert seen == [frozenset({"supercom", "game.example"})]
+    assert main(["serve", "--port", "0"], fake.console) == 0
+    assert seen[1] == frozenset()
+
+
+def test_serve_rejects_a_bad_port() -> None:
+    fake = FakeConsole([])
+    assert main(["serve", "--port", "70000"], fake.console) == 2
+    assert "error: port must be 0 to 65535" in fake.text
+
+
+def test_serve_rejects_rules_the_pack_cannot_play(tmp_path: Path) -> None:
+    rules_path = tmp_path / "rules.toml"
+    rules_path.write_text(Rules(stages=1, slice_bars=61).to_toml(), encoding="utf-8")
+    fake = FakeConsole([])
+    assert main(["serve", "--port", "0", "--rules", str(rules_path)], fake.console) == 2
+    assert "error: a slice of 61 bars does not fit the pack's 60 dates" in fake.text

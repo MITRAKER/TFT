@@ -159,9 +159,16 @@ class MarketPack:
         }
         return Slice(start, self.dates[start : start + length], bars)
 
-    def deal(self, rng: Random, length: int) -> Slice:
-        """Deal a random slice of ``length`` bars."""
-        return self.window(rng.randrange(0, len(self.dates) - length + 1), length)
+    def deal(self, rng: Random, length: int, avoid: int | None = None) -> Slice:
+        """Deal a random slice of ``length`` bars, never the window that starts at ``avoid``.
+
+        Passing the previous round's start as ``avoid`` keeps two rounds in a row
+        from being fought on the same days, when the pack has more than one window.
+        """
+        starts = [start for start in range(len(self.dates) - length + 1) if start != avoid]
+        if not starts:
+            return self.window(0, length)
+        return self.window(rng.choice(starts), length)
 
     def to_json(self) -> dict[str, Any]:
         """Return the pack as plain JSON data."""

@@ -188,3 +188,12 @@ def test_assemble_aligns_dates_and_prefers_rich_series() -> None:
     assert pack.origins == {"Equities": ("A",)}
     with pytest.raises(ValueError, match="share only"):
         assemble("t", [("A", rich[:1]), ("B", other)], {})
+
+
+def test_deal_never_repeats_the_avoided_window() -> None:
+    pack = tiny_pack()
+    starts = {pack.deal(Random(seed), 10, avoid=1).start for seed in range(40)}
+    assert starts == {0, 2}
+    only = pack.deal(Random(1), 12, avoid=0)
+    assert only.start == 0
+    assert pack.deal(Random(1), 12).start == 0

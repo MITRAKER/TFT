@@ -37,7 +37,9 @@ DIP = closes(100, 100, 99, 96, 97, 99, 101)
 
 def test_params_from_rules_and_scaling() -> None:
     assert PARAMS.stop == 2.0
-    assert PARAMS.leverage == 2.0
+    assert PARAMS.leverage == 1.5
+    assert (PARAMS.capture, PARAMS.quiet_move, PARAMS.adverse) == (20.0, 2.0, 50.0)
+    assert (PARAMS.scalp_threshold, PARAMS.hedge_premium) == (1.5, 1.0)
     scaled = PARAMS.scaled(8, 13)
     assert (scaled.stop, scaled.target) == (1.6, 5.2)
     assert Params.from_rules(Rules(stop_percent=3)).stop == 3.0
@@ -84,31 +86,45 @@ def test_reversion_buys_the_dip() -> None:
     assert reversion(RISING, PARAMS) == FLAT
 
 
-def test_scalp_trades_every_bar() -> None:
+def test_scalp_follows_big_bars_only() -> None:
     outcome = scalp(RISING, PARAMS)
-    assert outcome.trades == len(RISING) - 2
-    assert outcome.pnl > 0
-    assert scalp(closes(100, 101, 99, 102, 98), PARAMS).pnl < 0
+    assert outcome.trades == 3
+    assert outcome.pnl == pytest.approx(5.61, abs=0.01)
+    chop = scalp(closes(100, 102, 99, 102, 98), PARAMS)
+    assert chop.trades == 3
+    assert chop.pnl == pytest.approx(-chop.drawdown)
+    assert chop.pnl < -9
+    assert scalp(closes(100, 100.5, 101, 101.5), PARAMS) == FLAT
+    every_bar = Params.from_rules(Rules(scalp_threshold_tenths=0))
+    assert scalp(RISING, every_bar).trades == len(RISING) - 2
 
 
 def test_hedged_floors_the_loss() -> None:
     outcome = hedged(FALLING, PARAMS)
-    assert outcome.pnl == pytest.approx(-2.0 - 0.5)
-    assert outcome.drawdown <= 2.5
-    assert hedged(RISING, PARAMS).pnl == pytest.approx(10.0 - 0.05 - 0.5)
+    assert outcome.pnl == pytest.approx(-2.0 - 1.0)
+    assert outcome.drawdown <= 3.0
+    assert hedged(RISING, PARAMS).pnl == pytest.approx(10.0 - 0.05 - 1.0)
 
 
 def test_arbitrage_and_quant_and_whale() -> None:
     arb = arbitrage(FALLING, PARAMS)
     assert arb.trades == 6
-    assert arb.pnl > 0
+    assert arb.pnl == pytest.approx(1.54, abs=0.01)
+    quiet = arbitrage(closes(100, 101, 102, 103), PARAMS)
+    assert (quiet.trades, quiet.drawdown) == (3, 0.0)
+    assert quiet.pnl == pytest.approx(0.44, abs=0.01)
+    shock = arbitrage(closes(100, 110, 99), PARAMS)
+    assert shock.pnl == pytest.approx(-7.17, abs=0.01)
+    assert shock.drawdown == pytest.approx(7.17, abs=0.01)
+    with pytest.raises(ValueError, match="at least one bar"):
+        arbitrage([], PARAMS)
     combined = quant(RISING, PARAMS)
     assert combined.trades == 1
     assert combined.pnl == pytest.approx(breakout(RISING, PARAMS).pnl / 2)
     big = whale(RISING, PARAMS)
-    assert big.pnl == pytest.approx((10.0 - 0.05) * 2 - 0.1)
+    assert big.pnl == pytest.approx((10.0 - 0.05) * 1.5 - 0.075)
     assert whale(FALLING, PARAMS).drawdown == pytest.approx(
-        min(100, hold(FALLING, PARAMS).drawdown * 2)
+        min(100, hold(FALLING, PARAMS).drawdown * 1.5)
     )
 
 
@@ -126,3 +142,24 @@ def test_every_class_has_a_strategy() -> None:
     assert strategy_for("Swing") is hold
     with pytest.raises(ValueError, match="no strategy"):
         strategy_for("Banker")
+
+
+def test_strategies_mark_where_they_traded() -> None:
+    assert hold(RISING, PARAMS).marks == ((0, "buy"), (6, "sell"))
+    assert bracket(RISING, 0, PARAMS).marks == ((0, "buy"), (3, "target"))
+    assert bracket(FALLING, 0, PARAMS).marks == ((0, "buy"), (2, "stop"))
+    assert bracket(closes(100, 101, 101.5), 0, PARAMS).marks == ((0, "buy"), (2, "close"))
+    assert breakout(RISING, PARAMS).marks[0] == (3, "buy")
+    assert scalp(RISING, PARAMS).marks == ()
+    assert arbitrage(RISING, PARAMS).marks == ()
+    assert hedged(RISING, PARAMS).marks == hold(RISING, PARAMS).marks
+    assert whale(RISING, PARAMS).marks == hold(RISING, PARAMS).marks
+    assert quant(DIP, PARAMS).marks == breakout(DIP, PARAMS).marks + reversion(DIP, PARAMS).marks
+    assert FLAT.marks == ()
+
+
+def test_every_class_is_described() -> None:
+    from tft.strategies import DESCRIPTIONS  # noqa: PLC0415
+
+    assert set(DESCRIPTIONS) == set(STRATEGIES)
+    assert all(text.endswith(".") for text in DESCRIPTIONS.values())

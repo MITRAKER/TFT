@@ -34,6 +34,9 @@ class Params:
     hedge_premium: float
     leverage: float
     capture: float
+    quiet_move: float
+    adverse: float
+    scalp_threshold: float
 
     @classmethod
     def from_rules(cls, rules: Rules) -> Params:
@@ -48,6 +51,9 @@ class Params:
             hedge_premium=rules.hedge_premium_tenths / 10,
             leverage=rules.whale_leverage_tenths / 10,
             capture=float(rules.arb_capture_percent),
+            quiet_move=rules.arb_quiet_move_tenths / 10,
+            adverse=float(rules.arb_adverse_percent),
+            scalp_threshold=rules.scalp_threshold_tenths / 10,
         )
 
     def scaled(self, stop_tenths: int, target_tenths: int) -> Params:
@@ -57,13 +63,23 @@ class Params:
         )
 
 
+Mark = tuple[int, str]
+"""A bar of the slice and what the strategy did there: buy, sell, stop, target or close."""
+
+
 @dataclass(frozen=True)
 class Outcome:
-    """What a strategy made on a slice: profit, worst drawdown, trades. Percent of capital."""
+    """What a strategy made on a slice: profit, worst drawdown, trades, and where it traded.
+
+    Profit and drawdown are in percent of the capital committed. ``marks`` lists
+    the entry and the exit of strategies that take one position; strategies that
+    trade every bar leave it empty.
+    """
 
     pnl: float
     drawdown: float
     trades: int
+    marks: tuple[Mark, ...] = ()
 
 
 Strategy = Callable[[Sequence[Bar], Params], Outcome]
@@ -92,11 +108,28 @@ def path_drawdown(values: Sequence[float]) -> float:
     return worst
 
 
+def bracket_exit(
+    bars: Sequence[Bar], start: int, stop_price: float, target_price: float
+) -> tuple[float, int, str, float]:
+    """Walk the bars after the entry: return the exit price, its bar, why, and the lowest low seen.
+
+    A bar that touches both levels counts as the stop. A gap through the stop fills at the open.
+    """
+    worst = bars[start].close
+    for index in range(start + 1, len(bars)):
+        bar = bars[index]
+        worst = min(worst, bar.low)
+        if bar.low <= stop_price:
+            return min(bar.open, stop_price), index, "stop", worst
+        if bar.high >= target_price:
+            return target_price, index, "target", worst
+    return bars[-1].close, len(bars) - 1, "close", worst
+
+
 def bracket(bars: Sequence[Bar], start: int, params: Params) -> Outcome:
     """Go long at bar ``start``'s close with a stop and a target; exit at the end at the latest.
 
-    A bar that touches both levels counts as the stop. A gap through the stop
-    fills at the open. The drawdown is the worst excursion below the entry.
+    The drawdown is the worst excursion below the entry.
 
     Raises:
         ValueError: If ``start`` is not a bar of the slice.
@@ -107,19 +140,10 @@ def bracket(bars: Sequence[Bar], start: int, params: Params) -> Outcome:
     entry = bars[start].close
     stop_price = entry * (1 - params.stop / PERCENT)
     target_price = entry * (1 + params.target / PERCENT)
-    exit_price = bars[-1].close
-    worst = entry
-    for bar in bars[start + 1 :]:
-        worst = min(worst, bar.low)
-        if bar.low <= stop_price:
-            exit_price = min(bar.open, stop_price)
-            break
-        if bar.high >= target_price:
-            exit_price = target_price
-            break
+    exit_price, exit_bar, reason, worst = bracket_exit(bars, start, stop_price, target_price)
     pnl = (exit_price / entry - 1) * PERCENT - params.cost_bps / BASIS_POINTS * PERCENT
     drawdown = max(0.0, (entry - min(worst, exit_price)) / entry * PERCENT)
-    return Outcome(pnl, drawdown, 1)
+    return Outcome(pnl, drawdown, 1, ((start, "buy"), (exit_bar, reason)))
 
 
 def hold(bars: Sequence[Bar], params: Params) -> Outcome:
@@ -128,7 +152,8 @@ def hold(bars: Sequence[Bar], params: Params) -> Outcome:
     entry = bars[0].open
     closes = [bar.close for bar in bars]
     pnl = (closes[-1] / entry - 1) * PERCENT - params.cost_bps / BASIS_POINTS * PERCENT
-    return Outcome(pnl, path_drawdown([entry, *closes]), 1)
+    marks = ((0, "buy"), (len(bars) - 1, "sell"))
+    return Outcome(pnl, path_drawdown([entry, *closes]), 1, marks)
 
 
 def breakout(bars: Sequence[Bar], params: Params) -> Outcome:
@@ -156,7 +181,10 @@ def reversion(bars: Sequence[Bar], params: Params) -> Outcome:
 
 
 def scalp(bars: Sequence[Bar], params: Params) -> Outcome:
-    """Scalper: every bar, trade in the direction of the previous bar; pay costs every time.
+    """Scalper: after a big enough bar, trade the next one in the same direction.
+
+    A bar counts as big enough when it moved at least
+    ``params.scalp_threshold`` percent; every trade pays the trading cost.
 
     Raises:
         ValueError: If the slice is empty.
@@ -167,41 +195,57 @@ def scalp(bars: Sequence[Bar], params: Params) -> Outcome:
     closes = [bar.close for bar in bars]
     equity = 1.0
     path = [equity]
-    trades = 0
     for index in range(2, len(closes)):
-        direction = 1.0 if closes[index - 1] >= closes[index - 2] else -1.0
+        previous = closes[index - 1] / closes[index - 2] - 1
+        if abs(previous) * PERCENT < params.scalp_threshold:
+            continue
+        direction = 1.0 if previous >= 0 else -1.0
         move = closes[index] / closes[index - 1] - 1
         equity *= 1 + direction * move - params.cost_bps / BASIS_POINTS
         path.append(equity)
-        trades += 1
-    return Outcome((equity - 1) * PERCENT, path_drawdown(path), trades)
+    return Outcome((equity - 1) * PERCENT, path_drawdown(path), len(path) - 1)
 
 
 def hedged(bars: Sequence[Bar], params: Params) -> Outcome:
     """Hedger: a swing trade with a floor on the loss, paid for with a premium."""
     base = hold(bars, params)
     pnl = max(base.pnl, -params.hedge_floor) - params.hedge_premium
-    return Outcome(pnl, min(base.drawdown, params.hedge_floor + params.hedge_premium), base.trades)
+    drawdown = min(base.drawdown, params.hedge_floor + params.hedge_premium)
+    return Outcome(pnl, drawdown, base.trades, base.marks)
 
 
 def arbitrage(bars: Sequence[Bar], params: Params) -> Outcome:
-    """Arbitrageur: capture a fixed share of every bar's move, long or short, minus costs."""
-    require_bars(bars)
+    """Arbitrageur: earn a share of every quiet move, lose on the part of a move beyond it.
+
+    Each bar, the part of the move up to ``params.quiet_move`` percent pays
+    ``params.capture`` percent of itself; the part beyond it costs
+    ``params.adverse`` percent of itself (a market maker run over by a big
+    move); and every bar pays the trading cost.
+
+    Raises:
+        ValueError: If the slice is empty.
+    """
+    if not bars:
+        msg = "a strategy needs at least one bar"
+        raise ValueError(msg)
     closes = [bar.close for bar in bars]
-    captured = 0.0
+    equity = 1.0
+    path = [equity]
     for index in range(1, len(closes)):
         move = abs(closes[index] / closes[index - 1] - 1) * PERCENT
-        captured += move * params.capture / PERCENT - params.cost_bps / BASIS_POINTS * PERCENT
-    trades = len(closes) - 1
-    drawdown = max(0.0, trades * params.cost_bps / BASIS_POINTS * PERCENT)
-    return Outcome(captured, drawdown, trades)
+        earned = params.capture / PERCENT * min(move, params.quiet_move)
+        lost = params.adverse / PERCENT * max(0.0, move - params.quiet_move)
+        equity *= 1 + (earned - lost) / PERCENT - params.cost_bps / BASIS_POINTS
+        path.append(equity)
+    return Outcome((equity - 1) * PERCENT, path_drawdown(path), len(closes) - 1)
 
 
 def quant(bars: Sequence[Bar], params: Params) -> Outcome:
     """Quant: half momentum, half contrarian."""
     first, second = breakout(bars, params), reversion(bars, params)
     pnl = (first.pnl + second.pnl) / 2
-    return Outcome(pnl, max(first.drawdown, second.drawdown), first.trades + second.trades)
+    drawdown = max(first.drawdown, second.drawdown)
+    return Outcome(pnl, drawdown, first.trades + second.trades, first.marks + second.marks)
 
 
 def whale(bars: Sequence[Bar], params: Params) -> Outcome:
@@ -209,7 +253,7 @@ def whale(bars: Sequence[Bar], params: Params) -> Outcome:
     base = hold(bars, params)
     slippage = params.cost_bps / BASIS_POINTS * PERCENT * params.leverage
     pnl = base.pnl * params.leverage - slippage
-    return Outcome(pnl, min(PERCENT, base.drawdown * params.leverage), base.trades)
+    return Outcome(pnl, min(PERCENT, base.drawdown * params.leverage), base.trades, base.marks)
 
 
 STRATEGIES: Mapping[str, Strategy] = {
@@ -223,6 +267,19 @@ STRATEGIES: Mapping[str, Strategy] = {
     "Whale": whale,
 }
 """The strategy each class trades."""
+
+
+DESCRIPTIONS: Mapping[str, str] = {
+    "Swing": "Buys the first open and holds to the last close.",
+    "Momentum": "Waits for a close above the opening range, then rides it with a stop and target.",
+    "Contrarian": "Buys a close that drops below the running average and aims back at it.",
+    "Scalper": "After a big bar, trades the next one in the same direction; pays costs each time.",
+    "Hedger": "Holds like a Swing, with a floor under the loss that costs a premium.",
+    "Arbitrageur": "Earns a share of every quiet move and loses on the big ones.",
+    "Quant": "Half Momentum, half Contrarian.",
+    "Whale": "Holds like a Swing with leverage: bigger wins, bigger drawdowns.",
+}
+"""What each class's strategy does, in one line, for clients and documentation."""
 
 
 def strategy_for(role: str) -> Strategy:

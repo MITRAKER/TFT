@@ -34,3 +34,11 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Node tooling for the browser client
+node_modules/
+test-results/
+playwright-report/
+
+# Replays written by `tft play`
+replays/

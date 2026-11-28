@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from tft.name import GAME_NAME
 from tft.rules import DEFAULT_RULES, Rules, toml_value
 
 
@@ -20,7 +21,7 @@ def test_defaults_describe_a_full_match() -> None:
 
 def test_toml_round_trip_is_exact() -> None:
     text = DEFAULT_RULES.to_toml()
-    assert text.startswith("# Ticker Fight Tactics rule set")
+    assert text.startswith(f"# {GAME_NAME} rule set")
     assert Rules.from_mapping(tomllib.loads(text)) == DEFAULT_RULES
 
 
@@ -60,6 +61,11 @@ def test_from_mapping_rejects_unknown_keys_and_bad_tables() -> None:
         ({"stage_base_damage": {2: 2}}, "stage_base_damage"),
         ({"trade_cost_bps": -1}, "must not be negative"),
         ({"slice_bars": 1}, "slice_bars"),
+        ({"board_rows": 3}, "one entry per board row"),
+        ({"row_shield_percent": (0, 0)}, "one entry per board row"),
+        ({"row_size_percent": (0, 90, 100, 120)}, "must be positive"),
+        ({"board_cols": 2}, "at least max_level cells"),
+        ({"cover_shield_percent": -1}, "must not be negative"),
     ],
 )
 def test_validation_rejects_unplayable_rules(overrides: dict[str, Any], message: str) -> None:
@@ -74,3 +80,11 @@ def test_toml_value_renders_supported_types() -> None:
     assert toml_value((1, [2, 3])) == "[1, [2, 3]]"
     with pytest.raises(TypeError, match="cannot write"):
         toml_value(1.5)
+
+
+def test_board_rules_round_trip_through_toml() -> None:
+    rules = Rules(row_size_percent=(70, 80, 90, 130), cover_shield_percent=40)
+    again = Rules.from_mapping(tomllib.loads(rules.to_toml()))
+    assert again == rules
+    assert again.row_size_percent == (70, 80, 90, 130)
+    assert isinstance(again.augment_rounds[0], tuple)

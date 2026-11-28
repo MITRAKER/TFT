@@ -1,15 +1,15 @@
-# Product Requirements Document: Ticker Fight Tactics (codename TFT)
+# Product Requirements Document: Team Fight Tackticktics (TFT)
 
 | | |
 | --- | --- |
 | Status | Draft v0.1 for review |
 | Owner | Mitra Kermanian (MITRAKER) |
 | Repository | <https://github.com/MITRAKER/TFT> |
-| Last updated | 2026-11-02 |
+| Last updated | 2026-11-16 |
 
 ## 1. Summary
 
-Ticker Fight Tactics is a strategy game in the auto-battler genre in which the
+Team Fight Tackticktics is a strategy game in the auto-battler genre in which the
 pieces are **trading strategies**, the gold is **capital**, and the battles are
 **real market sessions replayed from historical data**. A player drafts a
 board of trader-champions from a shared shop, combines copies to star them up,
@@ -123,7 +123,7 @@ The match ends when one player remains, or at the hard round cap.
 
 ## 6. Mechanic mapping: auto-battler to trading
 
-| Auto-battler mechanic | In Ticker Fight Tactics | What it teaches |
+| Auto-battler mechanic | In Team Fight Tackticktics | What it teaches |
 | --- | --- | --- |
 | Little Legend with 100 health | The trader's **drawdown budget** | Health is a resource; blowing up is the only unrecoverable loss |
 | Gold | **Capital** | Compounding beats spending |
@@ -136,7 +136,7 @@ The match ends when one player remains, or at the hard round cap.
 | Items and components | **Risk tools**: stop-loss, take-profit, hedge, trailing stop, position sizing; components combine | Slam a stop early; perfect is the enemy of protected |
 | Augments | **Account rules**: commission rebates, extra rerolls (more scans), lower interest step, leverage with margin-call risk | Rules you set for yourself shape outcomes more than any single trade |
 | Leveling vs rerolling | **Time horizon**: level toward big setups, or roll for many small ones | Scalping and swing trading are different economies |
-| Positioning (frontline, backline, corners) | **Allocation**: hedges and defensives in front, carries in the back; clumping focuses risk | Protect the carry; do not split damage |
+| Positioning (frontline, backline, corners) | **Position sizing**: the front rows trade smaller and forgive part of a drawdown; the back rows trade bigger and pay extra for a drawdown unless a unit stands in front of them; the column picks the ticker | Size down what swings; cover the big position; do not put every unit on one ticker |
 | Carousel | **Free pick** of a champion with a component, worst players first | Catch-up mechanics, and the value of a stop you did not pay for |
 | PvE rounds | **The Market** itself as the opponent: a scripted board that scales by stage | Some sessions are against the tape, not against people |
 | Scouting | **Watch the lobby**: see what others hold and what is contested | Pivot out of crowded trades |
@@ -219,11 +219,29 @@ ships six augments with gold and power effects only.
 
 ### 7.7 Positioning
 
-A 7×4 hex board as in the genre. Front row absorbs; back corners carry.
-In trading terms the front row is the hedge book and the back row is the
-alpha book. The engine has no grid yet; positioning enters with the web
-client (milestone M3), where a board position can map to allocation and
-hedging order in the market replay.
+A 7×4 hex board as in the genre: 4 rows by 7 columns, row 0 in front.
+Implemented in M3 as `tft.formation`, where the row is a position-sizing
+dial:
+
+| Row | Size | Drawdown forgiven |
+| --- | --- | --- |
+| 0 (front) | 90 % | 40 % |
+| 1 | 95 % | 20 % |
+| 2 | 100 % | 0 % |
+| 3 (back) | 110 % | 0 % |
+
+In the two back rows a unit with an ally in front of it in the same column
+is **covered** and has another 25 % of its drawdown forgiven; one with
+nobody in front is **exposed** and its drawdown weighs 50 % more. In trading
+terms the front rows are the hedge book, small positions for what swings,
+and the back rows are the alpha book, the largest positions, for what is
+steady. The **column** picks which symbol of its origin a unit trades, so
+spreading an origin over columns diversifies it and stacking it in one
+column concentrates it. A unit fielded without a cell takes the default row
+of its class, centre columns first: Whale and Swing in front, Scalper and
+Hedger in the second row, every other class at the back. Every number here
+is a rule (`row_size_percent`, `row_shield_percent`, `cover_shield_percent`,
+`exposed_penalty_percent`); how they were tuned is in `docs/BALANCE.md`.
 
 ### 7.8 Combat: the market replay
 
@@ -232,9 +250,10 @@ a real historical session (or a block of 5-minute bars) for a basket of
 symbols, chosen by seed and hidden from players until combat. Each champion
 is a scripted strategy over that slice (an opening-range breakout, a mean
 reversion, a carry trade); its star level sets size, its items set stops and
-targets, and its traits add bonuses. A board's **combat score** is the
-risk-adjusted P&L of its strategies over the slice; the higher score wins and
-the margin sets survivors.
+targets, and its traits add bonuses. Each unit's trade turns its size into a
+score: a good trade grows it, a bad one shrinks it, a disaster wipes it out.
+A board's **combat score** is the sum of its units' scores with the trait
+and augment bonuses; the higher score wins and the margin sets survivors.
 
 Properties:
 
@@ -246,12 +265,27 @@ Properties:
 - *Offline fixtures.* Tests run on committed historical bars, exactly as the
   Day Trader skill's own tests do.
 
-Implemented in M2 as `tft.combat.MarketResolver`: a unit's score is its
-strategy's profit on its symbol's bars minus a penalised drawdown (items shield
-part of it), times its size (power, scaled by items); the board's score adds the
-trait and augment bonuses. The first mock, `PowerResolver`, remains available
-with `--no-market`. Slices are ``slice_bars`` consecutive daily bars (10 by
-default) dealt from the pack by the game's seed.
+Implemented in M2 as `tft.combat.MarketResolver` and rescored in M3. A
+unit's **edge** is its strategy's profit on its symbol's bars minus 0.3
+times its drawdown, in percent; its items and its row shield part of the
+drawdown from the penalty, and exposure adds to it. The unit's **score** is
+its size (power, scaled by its items and its row) times a **result factor**:
+100 % plus 10 % per percent of edge, kept between 0 and 200 %. A flat trade
+keeps the size, an edge of −10 % or worse wipes the unit out, an edge of
++10 % or better doubles it, and the factor is never negative, so fielding a
+unit can never lower a board's score. The board's score adds the trait and
+augment bonuses. The winner keeps the share of its units that matches the
+share of its score that was not needed to win, and at least one: 12 against
+9 keeps a quarter.
+
+M2 scored a unit as its size times its edge with a penalty of 0.5, which is
+negative for every losing trade; an empty board then beat most boards.
+`docs/BALANCE.md` has the measurements and the reasons for the change.
+
+The first mock, `PowerResolver`, remains available with `--no-market`.
+Slices are ``slice_bars`` consecutive daily bars (10 by default) dealt from
+the pack by the game's seed; when the pack has more than one window, the
+same one is not dealt two rounds in a row.
 
 ### 7.9 Lobby, multiplayer and bots
 
@@ -316,12 +350,14 @@ one pack so that replays stay valid when sources change.
 
 ```text
 clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays)
-                                   |
+                                   |        server, view: `tft serve`, JSON over HTTP (M3)
                               tft engine (pure Python, deterministic, headless)
                                    |-- roster        traits, champions, items, augments (data)
                                    |-- environment   rounds, shop, pool, levels, damage, lobby
+                                   |-- formation     the positioning grid: rows, cover, exposure (M3)
                                    |-- economy       income, interest, streaks
                                    |-- resolvers     PowerResolver (mock) -> MarketResolver (replay)
+                                   |-- lessons       round summaries and what a round teaches (M3)
                                    |-- replay        seed + config hash + actions -> byte-identical log
                                    |
                               market packs (versioned historical slices, offline fixtures)
@@ -335,11 +371,16 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 - **RL readiness.** The environment is shaped so a gym or PettingZoo wrapper
   is a thin layer (observation = own state live, opponents frozen at round
   start, shops hidden), following the reference engines.
-- **Clients.** Web client first (board, shop, bench, lobby, replay viewer);
-  the engine ships as a package so the CLI and bots need nothing else.
+- **Clients.** Web client first. Since M3 `tft serve` runs a standard-library
+  HTTP server with a JSON API (`tft.server`, `tft.view`) and serves a browser
+  client of plain ES modules with no dependency and no build step: board,
+  shop, bench, lobby, spectating and round summaries. It can download a
+  replay but has no replay viewer yet. The engine ships as a package so the
+  CLI and bots need nothing else.
 - **Quality gates.** Every change passes the repository's CI, Standards
-  (ruff, mypy strict, Power of Ten), CodeQL and Security workflows; releases
-  are tagged, attested builds (see `docs/RELEASING.md`).
+  (ruff, mypy strict, Power of Ten), CodeQL and Security workflows; CI also
+  lints the browser client and tests it in a real browser; releases are
+  tagged, attested builds (see `docs/RELEASING.md`).
 
 ## 11. Milestones
 
@@ -348,7 +389,7 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 | **M0 Mock** (released as v0.1.0) | Roster v0, environment mock (rounds, shop, pool, economy, star-ups, levels, augments, carousel, PvE, eliminations), `PowerResolver`, greedy bot, PRD | Deterministic eight-bot game runs to a result under the quality gates; 95 % branch coverage |
 | **M1 Playable CLI** (released as v0.2.0) | Human actions through the API, scouting observation, replay file, rules in a config file | A person plays a full match against seven bots in a terminal; replay verifies |
 | **M2 Market replay** (released as v0.3.0) | Market packs, `MarketResolver`, items as stops and targets, preview odds, the scripted Market board | Combat decided by real historical slices; fixture-based tests; the positioning grid moved to M3, where a spatial client gives it meaning |
-| **M3 Web client** | Board UI with the positioning grid, lobby, spectating, round summaries that explain the trading lesson, balance pass on the roster | Playtest with ten external players; median round under 60 seconds |
+| **M3 Web client** (delivered in v0.4.0) | Board UI with the positioning grid, lobby, spectating, round summaries that explain the trading lesson, balance pass (made on the scoring, the strategies and the grid; the champions' costs and power and the trait bonuses are unchanged; see `docs/BALANCE.md`) | Playtest with ten external players; median round under 60 seconds. **Not met yet:** the playtest is the owner's task and has not been run, so neither number has been measured |
 | **M4 Multiplayer and ladder** | Authoritative server, matchmaking, ranked seasons tied to market packs | Public beta |
 
 ## 12. Risks and compliance
@@ -359,7 +400,7 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 | Perception of gambling or financial advice | No real money, no brokerage, no live recommendations. Disclaimers in product and store copy. Education framing throughout. |
 | Market data licensing | Free, unofficial endpoints for development; versioned offline packs for tests; a licensed feed before commercial launch. |
 | Fairness and determinism bugs | Seeded RNG, byte-identical replays asserted by tests, shared market slice per round. |
-| Balance | Everything is data; ablation workflow on seeds (as the reference engines do) before every roster change. |
+| Balance | Everything is data; ablation workflow on seeds (as the reference engines do) before every roster change. `tools/balance_report.py` measures the classes, the champions, the grid and probe policies on a pack; `docs/BALANCE.md` holds the method, the current tables and their limits (one pack, one bot policy, no playtest yet). |
 | Scope creep | Milestones gated by exit criteria; mock first. |
 
 ## 13. Reference projects
@@ -375,11 +416,18 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 
 ## 14. Open questions
 
-1. **Name.** "Ticker Fight Tactics" keeps the TFT initials; alternatives are
-   welcome. The name and all art must stay clear of Riot's marks.
+1. **Name.** Decided by the product owner on 2026-11-14: **Team Fight
+   Tackticktics**. It replaces the working title "Ticker Fight Tactics" and
+   keeps the TFT initials. It is kept in one place, `src/tft/name.py`. The
+   name, logo and store copy must stay distinct from Riot Games' trademark
+   "Teamfight Tactics".
 2. **Combat scoring.** Risk-adjusted P&L (for example return divided by
    maximum drawdown over the slice) or plain P&L? The first is more
-   educational, the second more legible.
+   educational, the second more legible. Since M3 the engine scores
+   risk-adjusted (profit minus the penalised drawdown, turned into a bounded
+   result factor, section 7.8) and the client shows the plain profit and the
+   drawdown of every unit next to it. The penalty, the weight and the cap
+   are rules and stay open to tuning on more market packs.
 3. **How much real trading vocabulary in the UI** versus game vocabulary with
    trading in the tooltips?
 4. **Single-player campaign** (climb through market regimes) before
@@ -395,6 +443,9 @@ clients (web UI, CLI, bots)  ->  Game API (match, actions, observations, replays
 - **Augment**: a rule-changing pick at 2-1, 3-2, 4-2.
 - **Carousel**: a free pick round every stage.
 - **The Market**: the scripted PvE opponent.
+- **Cell / cover / exposure**: where a unit stands on the 4 by 7 grid; a back unit is covered by an ally in front of it in its column, exposed without one.
+- **Edge / result factor**: a unit's profit minus its penalised drawdown; what that multiplies the unit's size by, between 0 and 2.
+- **Lesson**: a plain-language note on what a round just showed; up to three per round.
 - **Market slice**: one historical session dealt to the whole lobby for a round.
 - **Market pack ("Set")**: a versioned collection of slices a match is pinned to.
 - **Replay**: seed plus configuration hash plus actions; reproduces a match exactly.

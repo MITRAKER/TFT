@@ -15,10 +15,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tft.environment import Game, Player, Unit
+from tft.errors import Refusal
+from tft.formation import Cell
 from tft.market import MarketPack
 from tft.rules import DEFAULT_RULES, Rules
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 ACTION_FIELDS = 2
 
 
@@ -57,25 +59,39 @@ def arg_at(args: tuple[int, ...], position: int, what: str) -> int:
     """Return argument ``position`` or explain which numbers the action needed.
 
     Raises:
-        ValueError: If the argument is missing.
+        Refusal: If the argument is missing.
     """
     if position >= len(args):
-        msg = f"this action needs {what}"
-        raise ValueError(msg)
+        raise Refusal(f"this action needs {what}")
     return args[position]
+
+
+def cell_at(args: tuple[int, ...], position: int) -> Cell:
+    """Return the ``(row, column)`` cell that starts at argument ``position``.
+
+    Raises:
+        Refusal: If the row or the column is missing.
+    """
+    what = "a row and a column"
+    return (arg_at(args, position, what), arg_at(args, position + 1, what))
 
 
 def unit_at(player: Player, number: int) -> Unit:
     """Return the unit numbered ``number`` in the player's units (board first, then bench).
 
     Raises:
-        ValueError: If the number is out of range.
+        Refusal: If the number is out of range.
     """
     units = player.units
     if not 0 <= number < len(units):
-        msg = f"unit number must be 0 to {len(units) - 1}" if units else "you own no units"
-        raise ValueError(msg)
+        raise Refusal(f"unit number must be 0 to {len(units) - 1}" if units else "you own no units")
     return units[number]
+
+
+def where(unit: Unit) -> str:
+    """Return ``row R, column C`` for a fielded unit."""
+    row, column = unit.position if unit.position is not None else (-1, -1)
+    return f"row {row}, column {column}"
 
 
 def _buy(game: Game, player: Player, args: tuple[int, ...]) -> str:
@@ -105,8 +121,16 @@ def _xp(game: Game, player: Player, args: tuple[int, ...]) -> str:
 def _field(game: Game, player: Player, args: tuple[int, ...]) -> str:
     del game
     unit = unit_at(player, arg_at(args, 0, "a unit number"))
-    player.field_unit(unit)  # noqa: JPL07 - acts by side effect
-    return f"fielded {unit.describe()}"
+    cell = cell_at(args, 1) if len(args) > 1 else None
+    player.field_unit(unit, cell)  # noqa: JPL07 - acts by side effect
+    return f"fielded {unit.describe()} at {where(unit)}"
+
+
+def _move(game: Game, player: Player, args: tuple[int, ...]) -> str:
+    del game
+    unit = unit_at(player, arg_at(args, 0, "a unit number, a row and a column"))
+    player.move_unit(unit, cell_at(args, 1))  # noqa: JPL07 - acts by side effect
+    return f"moved {unit.describe()} to {where(unit)}"
 
 
 def _bench(game: Game, player: Player, args: tuple[int, ...]) -> str:
@@ -146,6 +170,7 @@ ACTIONS: Mapping[str, Handler] = {
     "reroll": _reroll,
     "xp": _xp,
     "field": _field,
+    "move": _move,
     "bench": _bench,
     "augment": _augment,
     "craft": _craft,
@@ -158,12 +183,11 @@ def apply_action(game: Game, player: Player, action: Action) -> str:
     """Apply ``action`` for ``player`` and return a one-line description of what happened.
 
     Raises:
-        ValueError: If the action is unknown or the engine refuses it.
+        Refusal: If the action is unknown or the engine refuses it.
     """
     handler = ACTIONS.get(action.kind)
     if handler is None:
-        msg = f"unknown action {action.kind!r}"
-        raise ValueError(msg)
+        raise Refusal("unknown action")
     return handler(game, player, action.args)
 
 
