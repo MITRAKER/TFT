@@ -1656,8 +1656,20 @@ button.hex:focus-visible {
   visibility: hidden;
 }
 
+.floor[data-phase] .token .plate {
+  transition: opacity 0.25s ease;
+}
+
 .floor[data-phase] .token[data-down] .plate {
   opacity: 0.5;
+}
+
+/* While the fight runs a unit is known by its figure and its bars: the name plates of units
+   that stand shoulder to shoulder would cover one another. The names come back with the
+   verdicts. */
+.floor[data-phase="battle"] .token .plate,
+.floor[data-phase="battle"] .token[data-down] .plate {
+  opacity: 0;
 }
 
 @keyframes topple {
