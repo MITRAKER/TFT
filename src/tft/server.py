@@ -14,17 +14,21 @@ failure is reported as ``internal error`` and nothing more.
 
 from __future__ import annotations
 
+import io
 import ipaddress
 import json
 import logging
 import secrets
+import socket
 import threading
-from collections.abc import Callable, Mapping
+import time
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
-from typing import cast
+from typing import TYPE_CHECKING, cast
+from urllib.parse import urlsplit
 
 from tft import __version__
 from tft.environment import PHASE_PLANNING, Game, RoundReport
@@ -36,6 +40,9 @@ from tft.replay import ACTIONS, Action, Replay, apply_action
 from tft.rules import DEFAULT_RULES, Rules
 from tft.view import Json, catalog, match_state, report_view, summary_view
 
+if TYPE_CHECKING:
+    from _typeshed import WriteableBuffer
+
 SEAT = "you"
 """The name of the human seat in a match."""
 
@@ -46,11 +53,20 @@ MAX_ARGS = 4
 MAX_SEED = 2**31 - 1
 JSON_TYPE = "application/json"
 TEXT_TYPE = "text/plain; charset=utf-8"
+MAX_ROUND_ACTIONS = 500
+"""Planning actions a seat may take in one round; far more than a round needs."""
+
 SOCKET_TIMEOUT = 15
 """Seconds a connection may stay silent before it is dropped."""
 
-LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
-"""The names a server that listens on this machine only is reached by."""
+REQUEST_SECONDS = 30
+"""Seconds a whole request may take to arrive, however it is trickled in."""
+
+DRAIN_LIMIT = 1024 * 1024
+"""Bytes of an unwanted request body that are read and dropped before it is refused."""
+
+LOOPBACK_NAMES = frozenset({"localhost"})
+"""The DNS names every server answers to; an IP address needs no name."""
 
 LOG = logging.getLogger(__name__)
 
@@ -137,8 +153,16 @@ class Match:
         return self.game, self.seat, self.replay
 
     def act(self, action: Action) -> str:
-        """Apply a planning action for the seat, record it, and return the engine's message."""
+        """Apply a planning action for the seat, record it, and return the engine's message.
+
+        Raises:
+            ApiError: If the match is not waiting for actions, or the round already
+                holds more actions than any round needs: the replay must not grow
+                without end.
+        """
         game, seat, replay = self.require_planning()
+        if len(replay.rounds[-1]) >= MAX_ROUND_ACTIONS:
+            raise ApiError(HTTPStatus.CONFLICT, "too many actions this round: press Fight")
         message = apply_action(game, game.player(seat), action)
         replay.rounds[-1].append(action)
         return message
@@ -536,20 +560,41 @@ def host_name(host: str) -> str:
     return name.split(":", maxsplit=1)[0]
 
 
-def check_source(method: str, host: str, origin: str | None, *, loopback: bool) -> None:
+def is_address(name: str) -> bool:
+    """Return whether ``name`` is an IP address, with or without brackets, and not a DNS name."""
+    try:
+        _ = ipaddress.ip_address(name.strip("[]"))
+    except ValueError:
+        return False
+    return True
+
+
+def own_origin(origin: str, host: str, allowed: frozenset[str]) -> bool:
+    """Return whether ``origin`` is the server's own: its Host, or a name it was told to allow."""
+    if origin in (f"http://{host}", f"https://{host}"):
+        return True
+    parts = urlsplit(origin)
+    return parts.scheme in ("http", "https") and (parts.hostname or "") in allowed
+
+
+def check_source(
+    method: str, host: str, origin: str | None, allowed: frozenset[str] = frozenset()
+) -> None:
     """Refuse a request that another site sent through the player's browser.
 
-    A server that listens on this machine only answers to a loopback name,
-    which stops a page that points its own domain at ``127.0.0.1``. A request
-    that changes something must not carry the origin of another site.
+    The server answers to ``localhost``, to an IP address and to the names in
+    ``allowed``. A page that points its own domain at this machine is thereby
+    stopped on every address the server listens on: its requests carry the
+    page's name. A request that changes something must also not carry the
+    origin of another site.
 
     Raises:
         ApiError: With status 403 for such a request.
     """
-    if loopback and host_name(host) not in LOOPBACK_NAMES:
-        raise ApiError(HTTPStatus.FORBIDDEN, "this server only answers to its own address")
-    own = (f"http://{host}", f"https://{host}")
-    if method != "GET" and origin is not None and origin not in own:
+    name = host_name(host)
+    if name not in LOOPBACK_NAMES and name not in allowed and not is_address(name):
+        raise ApiError(HTTPStatus.FORBIDDEN, "this server does not answer to that name")
+    if method != "GET" and origin is not None and not own_origin(origin, host, allowed):
         raise ApiError(HTTPStatus.FORBIDDEN, "requests from another site are refused")
 
 
@@ -584,18 +629,70 @@ class GameServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], api: Api, *, verbose: bool = False) -> None:
-        """Bind to ``address`` and serve ``api``."""
+    def __init__(
+        self,
+        address: tuple[str, int],
+        api: Api,
+        *,
+        verbose: bool = False,
+        allowed_hosts: Iterable[str] = (),
+    ) -> None:
+        """Bind to ``address``, an IPv4 or IPv6 address and a port, and serve ``api``.
+
+        ``allowed_hosts`` are the DNS names the server answers to besides
+        ``localhost`` and plain addresses: the name of the machine on the
+        network, or the public name of a proxy in front of it.
+        """
+        if ":" in address[0]:
+            self.address_family = socket.AF_INET6
         super().__init__(address, RequestHandler)
         self.api = api
         self.verbose = verbose
-        self.loopback = ipaddress.ip_address(str(self.server_address[0])).is_loopback
+        self.allowed = frozenset(name.strip().lower() for name in allowed_hosts)
 
     @property
     def url(self) -> str:
-        """Return the address the server listens on as a URL."""
-        host, port = self.server_address[0], self.server_address[1]
-        return f"http://{host!s}:{port}/"
+        """Return an address the server can be opened at, as a URL.
+
+        A server that listens on every address is opened on this machine.
+        """
+        host, port = str(self.server_address[0]), self.server_address[1]
+        address = ipaddress.ip_address(host)
+        if address.is_unspecified:
+            host = "::1" if address.version == 6 else "127.0.0.1"  # noqa: PLR2004 - IP version 6
+        return f"http://[{host}]:{port}/" if ":" in host else f"http://{host}:{port}/"
+
+
+class DeadlineReader(io.RawIOBase):
+    """Reads a connection and gives the whole request a limited time.
+
+    A socket's own timeout starts again with every byte, so a client that
+    trickles its request in could hold a thread for as long as it liked.
+    """
+
+    def __init__(self, connection: socket.socket, seconds: float, silence: float) -> None:
+        """Read ``connection`` for ``seconds`` at most, and never wait longer than ``silence``."""
+        super().__init__()
+        self.connection = connection
+        self.silence = silence
+        self.ends = time.monotonic() + seconds
+
+    def readable(self) -> bool:
+        """Say that this stream can be read."""
+        return True
+
+    def readinto(self, buffer: WriteableBuffer, /) -> int:
+        """Fill ``buffer`` from the connection.
+
+        Raises:
+            TimeoutError: If the time for the request is up or the connection stays silent.
+        """
+        left = self.ends - time.monotonic()
+        if left <= 0:
+            msg = "the request took too long"
+            raise TimeoutError(msg)
+        self.connection.settimeout(min(left, self.silence))  # noqa: JPL07 - a setter
+        return self.connection.recv_into(buffer)
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -603,6 +700,21 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     server_version = "tft"
     timeout = SOCKET_TIMEOUT
+    deadline = REQUEST_SECONDS
+
+    def setup(self) -> None:
+        """Open the connection's streams; the request has to arrive within the deadline."""
+        super().setup()
+        self.rfile.close()
+        reader = DeadlineReader(self.connection, self.deadline, self.timeout)
+        self.rfile = io.BufferedReader(reader)
+
+    def handle(self) -> None:
+        """Serve the connection; a client that breaks it off is no error."""
+        try:
+            super().handle()
+        except ConnectionError:
+            self.close_connection = True
 
     def version_string(self) -> str:
         """Name the server in the Server header, without the interpreter's version."""
@@ -643,6 +755,29 @@ class RequestHandler(BaseHTTPRequestHandler):
             raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "the request body is too large")
         return length
 
+    def unread(self) -> int:
+        """Return how much of the request's body is worth reading away: its length, capped."""
+        try:
+            return max(0, min(int(self.headers.get("Content-Length", "0")), DRAIN_LIMIT))
+        except ValueError:
+            return 0
+
+    def discard_body(self) -> None:
+        """Read and drop what the client is still sending, up to a limit.
+
+        An answer written while the request's body is unread is followed by a
+        reset, and a client that is still sending never sees the answer.
+        """
+        left = self.unread()
+        try:
+            for _ in range(DRAIN_LIMIT // MAX_BODY + 1):
+                chunk = self.rfile.read(min(left, MAX_BODY)) if left > 0 else b""
+                if not chunk:
+                    break
+                left -= len(chunk)
+        except OSError:
+            return
+
     def respond(self, method: str) -> Response:
         """Check where the request comes from, read its body and ask the API.
 
@@ -652,8 +787,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         """
         game_server = cast("GameServer", self.server)
         host = self.headers.get("Host", "")
-        check_source(method, host, self.headers.get("Origin"), loopback=game_server.loopback)
-        body = self.rfile.read(self.body_length())
+        try:
+            check_source(method, host, self.headers.get("Origin"), game_server.allowed)
+            length = self.body_length()
+        except ApiError:
+            self.discard_body()
+            raise
+        body = self.rfile.read(length)
         content_type = self.headers.get("Content-Type", "")
         return game_server.api.handle(method, self.path, body, content_type)
 
@@ -685,6 +825,8 @@ class RequestHandler(BaseHTTPRequestHandler):
     def send(self, response: Response, *, head: bool = False) -> None:
         """Write ``response``; ``head`` leaves the body out. A client that has left is no error."""
         try:
+            # Reading may have left the connection with the little time the request had left.
+            self.connection.settimeout(self.timeout)  # noqa: JPL07 - a setter
             self.write_head(response)
             if not head:
                 _ = self.wfile.write(response.body)
@@ -709,7 +851,16 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 
 def create_server(
-    host: str = "127.0.0.1", port: int = 8000, *, lobby: Lobby | None = None, verbose: bool = False
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    *,
+    lobby: Lobby | None = None,
+    verbose: bool = False,
+    allowed_hosts: Iterable[str] = (),
 ) -> GameServer:
-    """Create a server on ``host`` and ``port``; port 0 picks a free one."""
-    return GameServer((host, port), Api(lobby), verbose=verbose)
+    """Create a server on ``host`` and ``port``; port 0 picks a free one.
+
+    ``host`` is an IPv4 or IPv6 address. ``allowed_hosts`` are the DNS names
+    the server answers to besides ``localhost`` and plain addresses.
+    """
+    return GameServer((host, port), Api(lobby), verbose=verbose, allowed_hosts=allowed_hosts)

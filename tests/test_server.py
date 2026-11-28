@@ -8,7 +8,9 @@ import json
 import logging
 import re
 import socket
+import struct
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -18,6 +20,7 @@ from typing import Any
 import pytest
 
 from tft import __version__
+from tft import server as server_module
 from tft.errors import Refusal
 from tft.items import Component
 from tft.name import GAME_NAME
@@ -37,6 +40,7 @@ from tft.server import (
     create_server,
     flag,
     host_name,
+    is_address,
     json_response,
     parse_action,
     parse_body,
@@ -556,20 +560,44 @@ def test_check_source_and_host_name() -> None:
     assert host_name(" 127.0.0.1 ") == "127.0.0.1"
     assert host_name("[::1]:8000") == "[::1]"
     assert host_name("") == ""
-    # A server that listens for the network answers to any name, but not to another site's page.
-    check_source("GET", "example.org", None, loopback=False)
-    check_source("POST", "example.org", "https://example.org", loopback=False)
-    check_source("DELETE", "example.org:8000", "http://example.org:8000", loopback=False)
-    for origin in ("http://evil.example", "null", "http://example.org:9"):
+    assert [is_address(name) for name in ("127.0.0.1", "[::1]", "::1", "192.168.1.20")] == [
+        True
+    ] * 4
+    assert [is_address(name) for name in ("localhost", "evil.example", "", "1.2.3")] == [False] * 4
+    # The server answers to localhost and to plain addresses, on whatever address it listens.
+    for host in ("localhost:8000", "127.0.0.1:8000", "[::1]:8000", "192.168.1.20:8000"):
+        check_source("GET", host, None)
+        check_source("POST", host, f"http://{host}")
+        check_source("DELETE", host, f"https://{host}")
+    # A page that points its own name at this machine gives itself away, also with its own origin.
+    for host in ("evil.example", "evil.example:8000", "", "127.0.0.1.evil.example"):
+        with pytest.raises(ApiError, match="does not answer to that name") as rebound:
+            check_source("GET", host, None)
+        assert rebound.value.status == 403
+        with pytest.raises(ApiError, match="does not answer to that name"):
+            check_source("POST", host, f"http://{host}")
+    # A request that changes something must not come from another site's page.
+    for origin in ("http://evil.example", "null", "http://127.0.0.1:9", "ftp://127.0.0.1:8000"):
         with pytest.raises(ApiError, match="another site") as foreign:
-            check_source("POST", "example.org", origin, loopback=False)
+            check_source("POST", "127.0.0.1:8000", origin)
         assert foreign.value.status == 403
     # A read changes nothing, and the browser keeps its answer from the other site.
-    check_source("GET", "127.0.0.1:8000", "http://evil.example", loopback=True)
-    for host in ("evil.example", "evil.example:8000", "", "127.0.0.1.evil.example"):
-        with pytest.raises(ApiError, match="its own address") as rebound:
-            check_source("GET", host, None, loopback=True)
-        assert rebound.value.status == 403
+    check_source("GET", "127.0.0.1:8000", "http://evil.example")
+
+
+def test_check_source_with_names_the_server_was_told_to_allow() -> None:
+    allowed = frozenset({"game.example", "supercom"})
+    check_source("GET", "Game.Example", None, allowed)
+    check_source("GET", "supercom:8000", None, allowed)
+    check_source("POST", "game.example", "https://game.example", allowed)
+    # Behind a proxy that rewrites the Host, the browser still sends the public origin.
+    check_source("POST", "127.0.0.1:8000", "https://game.example", allowed)
+    check_source("POST", "127.0.0.1:8000", "http://supercom:8000", allowed)
+    with pytest.raises(ApiError, match="does not answer to that name"):
+        check_source("GET", "other.example", None, allowed)
+    for origin in ("https://other.example", "https://game.example.evil.test", "ftp://game.example"):
+        with pytest.raises(ApiError, match="another site"):
+            check_source("POST", "127.0.0.1:8000", origin, allowed)
 
 
 def test_http_refuses_what_another_site_sends(server: GameServer) -> None:
@@ -595,12 +623,97 @@ def test_http_refuses_what_another_site_sends(server: GameServer) -> None:
     assert fetch(server, "DELETE", f"/api/matches/{match_id}", None, foreign)[0] == 403
     # A page that points its own name at this machine gives itself away in the Host header.
     status, _, body = fetch(server, "GET", "/api/matches", None, {"Host": f"evil.example:{port}"})
-    assert (status, json.loads(body)["error"]) == (
-        403,
-        "this server only answers to its own address",
-    )
+    assert (status, json.loads(body)["error"]) == (403, "this server does not answer to that name")
     status, _, body = fetch(server, "GET", "/api/matches", None, {"Host": f"localhost:{port}"})
     assert (status, len(json.loads(body)["matches"])) == (200, 1)
+
+
+def serving(game_server: GameServer) -> threading.Thread:
+    """Start serving in the background and return the thread to join after shutdown."""
+    thread = threading.Thread(target=game_server.serve_forever, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_a_server_for_the_network_still_refuses_a_rebound_name() -> None:
+    shared = create_server("0.0.0.0", 0, lobby=Lobby(SHORT))  # noqa: S104 - the case under test
+    thread = serving(shared)
+    port = int(shared.server_address[1])
+    try:
+        # It says where it can be opened, not the address it listens on.
+        assert shared.url == f"http://127.0.0.1:{port}/"
+        assert fetch(shared, "GET", "/api/health")[0] == 200
+        payload = json.dumps({"seed": 3, "bots": 1}).encode()
+        rebound = {"Host": f"evil.example:{port}", "Origin": f"http://evil.example:{port}"}
+        status, _, body = fetch(
+            shared, "POST", "/api/matches", payload, {"Content-Type": JSON, **rebound}
+        )
+        assert (status, json.loads(body)["error"]) == (
+            403,
+            "this server does not answer to that name",
+        )
+        assert (
+            fetch(shared, "GET", "/api/matches", None, {"Host": f"evil.example:{port}"})[0] == 403
+        )
+        assert json.loads(fetch(shared, "GET", "/api/matches")[2])["matches"] == []
+    finally:
+        shared.shutdown()
+        shared.server_close()
+        thread.join(timeout=5)
+
+
+def test_a_server_answers_to_the_names_it_was_told_to_allow() -> None:
+    named = create_server("127.0.0.1", 0, lobby=Lobby(SHORT), allowed_hosts=["Game.Example "])
+    thread = serving(named)
+    try:
+        assert fetch(named, "GET", "/api/health", None, {"Host": "game.example"})[0] == 200
+        assert fetch(named, "GET", "/api/health", None, {"Host": "other.example"})[0] == 403
+        # A proxy in front rewrote the Host; the browser's origin is the public name.
+        payload = json.dumps({"seed": 3, "bots": 1}).encode()
+        headers = {"Content-Type": JSON, "Origin": "https://game.example"}
+        assert fetch(named, "POST", "/api/matches", payload, headers)[0] == 201
+        headers["Origin"] = "https://other.example"
+        assert fetch(named, "POST", "/api/matches", payload, headers)[0] == 403
+    finally:
+        named.shutdown()
+        named.server_close()
+        thread.join(timeout=5)
+
+
+def test_a_server_listens_on_an_ipv6_address() -> None:
+    try:
+        modern = create_server("::1", 0, lobby=Lobby(SHORT))
+    except OSError:
+        pytest.skip("this machine has no IPv6 loopback")
+    thread = serving(modern)
+    try:
+        port = int(modern.server_address[1])
+        assert modern.url == f"http://[::1]:{port}/"
+        status, headers, body = fetch(modern, "GET", "/api/health")
+        assert (status, json.loads(body)["status"]) == (200, "ok")
+        assert headers["X-Content-Type-Options"] == "nosniff"
+    finally:
+        modern.shutdown()
+        modern.server_close()
+        thread.join(timeout=5)
+
+
+def test_a_round_takes_a_limited_number_of_actions(
+    api: Api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "MAX_ROUND_ACTIONS", 3)
+    state = new_match(api)
+    path = f"/api/matches/{state['id']}/actions"
+    slot = next(slot for slot, card in enumerate(state["seat"]["shop"]) if card is not None)
+    assert call(api, "POST", path, {"kind": "buy", "args": [slot]})[0] == 200
+    unit = call(api, "GET", f"/api/matches/{state['id']}")[1]["state"]["seat"]["bench"][0]["index"]
+    assert call(api, "POST", path, {"kind": "field", "args": [unit, 0, 0]})[0] == 200
+    assert call(api, "POST", path, {"kind": "move", "args": [unit, 0, 1]})[0] == 200
+    status, data = call(api, "POST", path, {"kind": "move", "args": [unit, 0, 2]})
+    assert (status, data["error"]) == (409, "too many actions this round: press Fight")
+    # The fight is still open to the player, and the next round starts from nothing.
+    assert call(api, "POST", f"/api/matches/{state['id']}/ready")[0] == 200
+    assert call(api, "POST", path, {"kind": "move", "args": [unit, 0, 2]})[0] == 200
 
 
 def exchange(port: int, request: bytes) -> bytes:
@@ -658,6 +771,58 @@ def test_http_wants_a_length_with_a_body(server: GameServer) -> None:
     assert json.loads(fetch(server, "GET", "/api/matches")[2])["matches"] == []
 
 
+def test_http_gives_a_whole_request_a_limited_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Every byte arrives well within the socket's own timeout; the request as a whole is too slow.
+    monkeypatch.setattr(RequestHandler, "timeout", 5)
+    monkeypatch.setattr(RequestHandler, "deadline", 0.4)
+    slow = create_server("127.0.0.1", 0, lobby=Lobby(SHORT))
+    thread = serving(slow)
+    started = time.monotonic()
+    try:
+        with socket.create_connection(("127.0.0.1", int(slow.server_address[1])), timeout=5) as raw:
+            answer = b""
+            try:
+                for byte in b"GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Slow: yes":
+                    raw.sendall(bytes([byte]))
+                    time.sleep(0.05)
+                answer = raw.recv(64)
+            except OSError:
+                answer = b""
+        assert answer == b""
+        assert time.monotonic() - started < 4
+        assert fetch(slow, "GET", "/api/health")[0] == 200
+    finally:
+        slow.shutdown()
+        slow.server_close()
+        thread.join(timeout=5)
+
+
+def test_http_answers_a_refused_upload_instead_of_breaking_it_off(server: GameServer) -> None:
+    large = b"x" * (600 * 1024)
+    status, _, body = fetch(server, "POST", "/api/matches", large, {"Content-Type": JSON})
+    assert (status, json.loads(body)["error"]) == (413, "the request body is too large")
+    headers = {"Content-Type": JSON, "Origin": "http://evil.example"}
+    status, _, body = fetch(server, "POST", "/api/matches", large, headers)
+    assert (status, json.loads(body)["error"]) == (403, "requests from another site are refused")
+    assert json.loads(fetch(server, "GET", "/api/matches")[2])["matches"] == []
+
+
+def test_a_client_that_resets_the_connection_leaves_no_traceback(
+    server: GameServer, capfd: pytest.CaptureFixture[str]
+) -> None:
+    linger = struct.pack("ii", 1, 0)
+    for _ in range(3):
+        raw = socket.create_connection(("127.0.0.1", int(server.server_address[1])), timeout=5)
+        raw.sendall(b"GET /api/he")
+        raw.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+        raw.close()
+    # The server has dealt with them by the time it answers the next requests.
+    for _ in range(3):
+        assert fetch(server, "GET", "/api/health")[0] == 200
+    time.sleep(0.2)
+    assert "Traceback" not in capfd.readouterr().err
+
+
 def test_http_drops_a_connection_that_stays_silent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(RequestHandler, "timeout", 0.2)
     quiet = create_server("127.0.0.1", 0, lobby=Lobby(SHORT))
@@ -690,7 +855,9 @@ def test_a_client_that_has_left_is_not_an_error(server: GameServer) -> None:
     handler.command = "GET"
     handler.close_connection = False
     handler.wfile = Gone()
-    handler.send(json_response(200, {"ok": True}))
+    with socket.socket() as unused:
+        handler.connection = unused
+        handler.send(json_response(200, {"ok": True}))
     assert handler.close_connection is True
 
 

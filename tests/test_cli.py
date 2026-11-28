@@ -408,6 +408,22 @@ def test_serve_runs_until_interrupted(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(opened) == 1
 
 
+def test_serve_passes_on_the_names_it_may_be_reached_by(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[frozenset[str]] = []
+
+    def interrupted(server: GameServer) -> None:
+        seen.append(server.allowed)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(GameServer, "serve_forever", interrupted)
+    fake = FakeConsole([])
+    arguments = ["serve", "--port", "0", "--allow-host", "SuperCom", "--allow-host", "game.example"]
+    assert main(arguments, fake.console) == 0
+    assert seen == [frozenset({"supercom", "game.example"})]
+    assert main(["serve", "--port", "0"], fake.console) == 0
+    assert seen[1] == frozenset()
+
+
 def test_serve_rejects_a_bad_port() -> None:
     fake = FakeConsole([])
     assert main(["serve", "--port", "70000"], fake.console) == 2

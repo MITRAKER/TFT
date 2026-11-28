@@ -428,7 +428,13 @@ def serve(args: argparse.Namespace, console: Console) -> int:
         msg = f"port must be 0 to {MAX_PORT}"
         raise ValueError(msg)
     lobby = Lobby(load_rules(args.rules), load_pack(args.pack, market=True))
-    server = create_server(args.host, args.port, lobby=lobby, verbose=args.verbose)
+    server = create_server(
+        args.host,
+        args.port,
+        lobby=lobby,
+        verbose=args.verbose,
+        allowed_hosts=args.allow_host or (),
+    )
     console.write(f"{GAME_NAME} {__version__} is serving at {server.url} (Ctrl+C stops it)")
     if args.open:
         _ = webbrowser.open(server.url)
@@ -485,7 +491,16 @@ def add_serve_command(commands: argparse._SubParsersAction[argparse.ArgumentPars
     """Add ``tft serve``."""
     parser = commands.add_parser("serve", help="serve the browser client")
     parser.add_argument(
-        "--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1)"
+        "--host",
+        default="127.0.0.1",
+        help="IPv4 or IPv6 address to listen on (default 127.0.0.1); 0.0.0.0 is every address",
+    )
+    parser.add_argument(
+        "--allow-host",
+        action="append",
+        metavar="NAME",
+        help="a DNS name the server may be reached by, besides localhost and plain addresses: "
+        "the machine's name on the network or a proxy's public name (repeat for more)",
     )
     parser.add_argument(
         "--port", type=int, default=8000, help="port to listen on; 0 picks a free one"

@@ -75,7 +75,8 @@ against seven bots.
 
 | Flag | Default | What it does |
 | --- | --- | --- |
-| `--host HOST` | `127.0.0.1` | The address to listen on |
+| `--host HOST` | `127.0.0.1` | The IPv4 or IPv6 address to listen on; `0.0.0.0` listens on every address |
+| `--allow-host NAME` | none | A DNS name the server may be reached by, besides `localhost` and plain addresses; repeat it for more |
 | `--port PORT` | `8000` | The port to listen on; `0` picks a free one |
 | `--rules FILE` | the built-in rules | The TOML rule file every match on the server is played under |
 | `--pack FILE` | the starter pack | The market pack fights are decided on |
@@ -85,6 +86,16 @@ against seven bots.
 The server has no accounts and keeps its matches in memory, at most 32 of
 them: everybody who can reach it can see, spectate and delete every match, and
 a restart loses them all. Keep it on `127.0.0.1` unless you mean to share it.
+
+To play from another device on your network, start it with `--host 0.0.0.0`
+and open `http://<this machine's IP address>:8000/` there. The server answers
+to `localhost` and to plain IP addresses; to reach it by a name, such as the
+machine's name on the network or the public name of a proxy in front of it,
+name it with `--allow-host`:
+
+```bash
+tft serve --host 0.0.0.0 --allow-host supercom
+```
 
 What the client shows:
 
@@ -221,9 +232,15 @@ method the server does not have).
 The server protects the player's browser from other sites. Every `POST` must
 be JSON, which a page on another site cannot send without asking first; a
 request that changes something is refused with 403 when its `Origin` is not
-the server's own; and a server on `127.0.0.1` answers only to `127.0.0.1`,
-`localhost` and `[::1]`, so a page that points its own domain at your machine
-gets 403 as well. A connection that stays silent for 15 seconds is dropped.
+the server's own; and on every address it listens on the server answers only
+to `localhost`, to plain IP addresses and to the names given with
+`--allow-host`, so a page that points its own domain at your machine gets 403
+as well.
+
+It also keeps one client from holding it up: a connection that stays silent
+for 15 seconds is dropped, a whole request has 30 seconds to arrive, and a
+seat may take at most 500 planning actions in one round (409 after that,
+until the round is fought).
 
 | Method and path | What it does |
 | --- | --- |
